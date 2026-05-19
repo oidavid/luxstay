@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -22,19 +22,20 @@ export async function middleware(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-
   const { pathname } = request.nextUrl
 
-  // Public routes — always accessible
-  const publicRoutes = ['/login', '/onboarding', '/book']
-  const isPublic = publicRoutes.some(r => pathname.startsWith(r))
+  const isPublic =
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/onboarding') ||
+    pathname.startsWith('/book') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname === '/favicon.ico'
 
-  // If not logged in and trying to access protected route → redirect to login
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // If logged in and trying to access login/onboarding → redirect to dashboard
   if (user && (pathname === '/login' || pathname === '/onboarding')) {
     return NextResponse.redirect(new URL('/overview', request.url))
   }
@@ -43,7 +44,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }

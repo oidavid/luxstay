@@ -1,16 +1,18 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Minus, Check, UtensilsCrossed, ShoppingCart, Send } from 'lucide-react'
+import { Plus, X, Minus, Check, UtensilsCrossed, ShoppingCart, Send, Pencil, Trash2, Eye, EyeOff } from 'lucide-react'
 
 type MenuItem = {
   id: string
   name: string
   category: string
   price: number
-  is_available: boolean
   description: string | null
+  is_available: boolean
+  available_room_service: boolean
+  room_service_price: number | null
 }
 
 type OrderItem = {
@@ -18,12 +20,11 @@ type OrderItem = {
   name: string
   price: number
   quantity: number
-  notes: string
 }
 
 type Room = { id: string; number: string }
 
-const CATEGORIES = ['all', 'breakfast', 'lunch', 'dinner', 'drinks', 'specials', 'room service']
+const CATEGORIES = ['all', 'breakfast', 'lunch', 'dinner', 'drinks', 'specials']
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(n)
@@ -36,23 +37,27 @@ export default function POSPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState('all')
+  const [showUnavailable, setShowUnavailable] = useState(false)
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
   const [orderType, setOrderType] = useState<'dine_in' | 'room_service' | 'bar'>('dine_in')
   const [tableNumber, setTableNumber] = useState('')
   const [selectedRoomId, setSelectedRoomId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
-  const [showAddItem, setShowAddItem] = useState(false)
 
-  // Add menu item form
-  const [newName, setNewName] = useState('')
-  const [newCategory, setNewCategory] = useState('lunch')
-  const [newPrice, setNewPrice] = useState<number | ''>('')
-  const [newDesc, setNewDesc] = useState('')
-  const [savingItem, setSavingItem] = useState(false)
+  // Item modal state
+  const [showItemModal, setShowItemModal] = useState(false)
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
-  const [availableRoomService, setAvailableRoomService] = useState(true)
-  const [roomServicePriceOverride, setRoomServicePriceOverride] = useState<number | ''>('')
+  const [itemName, setItemName] = useState('')
+  const [itemCategory, setItemCategory] = useState('lunch')
+  const [itemPrice, setItemPrice] = useState<number | ''>('')
+  const [itemDesc, setItemDesc] = useState('')
+  const [itemRoomService, setItemRoomService] = useState(true)
+  const [itemRoomServicePrice, setItemRoomServicePrice] = useState<number | ''>('')
+  const [savingItem, setSavingItem] = useState(false)
+
+  // Delete confirm
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -74,85 +79,100 @@ export default function POSPage() {
     setLoading(false)
   }
 
-  async function addMenuItem() {
-    if (!hotelId || !newName || newPrice === '') return
-    setSavingItem(true)
-    await supabase.from('menu_items').insert({
-      hotel_id: hotelId,
-      name: newName,
-      category: newCategory,
-      price: Number(newPrice),
-      description: newDesc || null,
-      is_available: true,
-      available_room_service: availableRoomService,
-      room_service_price: roomServicePriceOverride !== '' ? Number(roomServicePriceOverride) : null,
-    })
-    setNewName(''); setNewCategory('lunch'); setNewPrice(''); setNewDesc('')
-    setAvailableRoomService(true); setRoomServicePriceOverride('')
-    setShowAddItem(false)
-    await loadData()
-    setSavingItem(false)
+  function openAddItem() {
+    setEditingItem(null)
+    setItemName(''); setItemCategory('lunch'); setItemPrice('')
+    setItemDesc(''); setItemRoomService(true); setItemRoomServicePrice('')
+    setShowItemModal(true)
   }
 
   function openEditItem(item: MenuItem) {
     setEditingItem(item)
-    setNewName(item.name)
-    setNewCategory(item.category)
-    setNewPrice(item.price)
-    setNewDesc(item.description ?? '')
-    setAvailableRoomService((item as any).available_room_service ?? true)
-    setRoomServicePriceOverride((item as any).room_service_price ?? '')
-    setShowAddItem(true)
+    setItemName(item.name)
+    setItemCategory(item.category)
+    setItemPrice(item.price)
+    setItemDesc(item.description ?? '')
+    setItemRoomService(item.available_room_service ?? true)
+    setItemRoomServicePrice(item.room_service_price ?? '')
+    setShowItemModal(true)
   }
 
-  async function saveEditItem() {
-    if (!editingItem || !newName || newPrice === '') return
-    setSavingItem(true)
-    await supabase.from('menu_items').update({
-      name: newName,
-      category: newCategory,
-      price: Number(newPrice),
-      description: newDesc || null,
-      available_room_service: availableRoomService,
-      room_service_price: roomServicePriceOverride !== '' ? Number(roomServicePriceOverride) : null,
-    }).eq('id', editingItem.id)
+  function closeItemModal() {
+    setShowItemModal(false)
     setEditingItem(null)
-    setNewName(''); setNewCategory('lunch'); setNewPrice(''); setNewDesc('')
-    setAvailableRoomService(true); setRoomServicePriceOverride('')
-    setShowAddItem(false)
+    setItemName(''); setItemCategory('lunch'); setItemPrice('')
+    setItemDesc(''); setItemRoomService(true); setItemRoomServicePrice('')
+  }
+
+  async function saveItem() {
+    if (!hotelId || !itemName || itemPrice === '') return
+    setSavingItem(true)
+
+    const payload = {
+      hotel_id: hotelId,
+      name: itemName,
+      category: itemCategory,
+      price: Number(itemPrice),
+      description: itemDesc || null,
+      is_available: true,
+      available_room_service: itemRoomService,
+      room_service_price: itemRoomServicePrice !== '' ? Number(itemRoomServicePrice) : null,
+    }
+
+    if (editingItem) {
+      // UPDATE existing item — never insert
+      await supabase.from('menu_items').update({
+        name: payload.name,
+        category: payload.category,
+        price: payload.price,
+        description: payload.description,
+        available_room_service: payload.available_room_service,
+        room_service_price: payload.room_service_price,
+      }).eq('id', editingItem.id)
+    } else {
+      // INSERT new item
+      await supabase.from('menu_items').insert(payload)
+    }
+
+    closeItemModal()
     await loadData()
     setSavingItem(false)
   }
 
-  async function toggleItemAvailability(id: string, current: boolean) {
-    await supabase.from('menu_items').update({ is_available: !current }).eq('id', id)
-    setMenuItems(prev => prev.map(m => m.id === id ? { ...m, is_available: !current } : m))
+  async function deleteItem(id: string) {
+    await supabase.from('menu_items').delete().eq('id', id)
+    setMenuItems(prev => prev.filter(m => m.id !== id))
+    setDeleteConfirmId(null)
+  }
+
+  async function toggleAvailability(item: MenuItem) {
+    const newVal = !item.is_available
+    await supabase.from('menu_items').update({ is_available: newVal }).eq('id', item.id)
+    setMenuItems(prev => prev.map(m => m.id === item.id ? { ...m, is_available: newVal } : m))
   }
 
   function addToOrder(item: MenuItem) {
+    if (!item.is_available) return
+    const price = orderType === 'room_service' && item.room_service_price ? item.room_service_price : item.price
     setOrderItems(prev => {
       const existing = prev.find(o => o.menu_item_id === item.id)
-      if (existing) {
-        return prev.map(o => o.menu_item_id === item.id ? { ...o, quantity: o.quantity + 1 } : o)
-      }
-      return [...prev, { menu_item_id: item.id, name: item.name, price: item.price, quantity: 1, notes: '' }]
+      if (existing) return prev.map(o => o.menu_item_id === item.id ? { ...o, quantity: o.quantity + 1 } : o)
+      return [...prev, { menu_item_id: item.id, name: item.name, price, quantity: 1 }]
     })
   }
 
-  function removeFromOrder(id: string) {
+  function changeQty(id: string, delta: number) {
     setOrderItems(prev => {
-      const existing = prev.find(o => o.menu_item_id === id)
-      if (existing && existing.quantity > 1) {
-        return prev.map(o => o.menu_item_id === id ? { ...o, quantity: o.quantity - 1 } : o)
-      }
-      return prev.filter(o => o.menu_item_id !== id)
+      const item = prev.find(o => o.menu_item_id === id)
+      if (!item) return prev
+      if (item.quantity + delta <= 0) return prev.filter(o => o.menu_item_id !== id)
+      return prev.map(o => o.menu_item_id === id ? { ...o, quantity: o.quantity + delta } : o)
     })
   }
 
   async function submitOrder() {
     if (!hotelId || orderItems.length === 0) return
     setSubmitting(true)
-
     const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
     const vatAmount = subtotal * 0.075
     const total = subtotal + vatAmount
@@ -162,8 +182,7 @@ export default function POSPage() {
       order_type: orderType,
       table_number: orderType === 'dine_in' ? tableNumber : null,
       room_id: orderType === 'room_service' ? selectedRoomId || null : null,
-      status: 'open',
-      subtotal, vat_amount: vatAmount, total,
+      status: 'open', subtotal, vat_amount: vatAmount, total,
     }).select().single()
 
     if (order) {
@@ -174,34 +193,26 @@ export default function POSPage() {
           menu_item_id: item.menu_item_id,
           quantity: item.quantity,
           unit_price: item.price,
-          notes: item.notes || null,
         }))
       )
     }
 
-    setOrderItems([])
-    setTableNumber('')
-    setSelectedRoomId('')
+    setOrderItems([]); setTableNumber(''); setSelectedRoomId('')
     setSubmitted(true)
     setTimeout(() => setSubmitted(false), 3000)
     setSubmitting(false)
   }
 
-  const [showUnavailable, setShowUnavailable] = useState(false)
   const filtered = menuItems.filter(m => {
     if (!m.is_available && !showUnavailable) return false
     return category === 'all' || m.category === category
   })
 
-  const categoryCounts = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = cat === 'all' ? menuItems.length : menuItems.filter(m => m.category === cat).length
-    return acc
-  }, {} as Record<string, number>)
-
   const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0)
   const vat = subtotal * 0.075
   const total = subtotal + vat
   const itemCount = orderItems.reduce((sum, i) => sum + i.quantity, 0)
+  const unavailableCount = menuItems.filter(m => !m.is_available).length
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading restaurant...</div>
 
@@ -210,17 +221,18 @@ export default function POSPage() {
       <div className="pos-header">
         <div>
           <h2 className="pos-title">Restaurant & Bar</h2>
-          <p className="pos-sub">{menuItems.filter(m => m.is_available).length} items on menu</p>
+          <p className="pos-sub">{menuItems.filter(m => m.is_available).length} items available{unavailableCount > 0 ? ` · ${unavailableCount} unavailable` : ''}</p>
         </div>
-        <button className="pos-add-item-btn" onClick={() => setShowAddItem(true)}>
+        <button className="pos-add-btn" onClick={openAddItem}>
           <Plus size={14} /> Add Menu Item
         </button>
       </div>
 
       <div className="pos-body">
-        {/* Menu */}
+        {/* Menu side */}
         <div className="pos-menu">
-          {/* Order type */}
+
+          {/* Order type selector */}
           <div className="pos-order-type">
             {(['dine_in', 'room_service', 'bar'] as const).map(t => (
               <button key={t} className="pos-type-btn" data-active={orderType === t} onClick={() => setOrderType(t)}>
@@ -229,51 +241,85 @@ export default function POSPage() {
             ))}
           </div>
 
-          {/* Show unavailable toggle */}
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:"var(--slate-500)",cursor:"pointer"}}>
-              <input type="checkbox" checked={showUnavailable} onChange={e => setShowUnavailable(e.target.checked)} style={{accentColor:"var(--navy-800)"}} />
-              Show unavailable items
-            </label>
-            <span style={{fontSize:11,color:"var(--text-muted)"}}>({menuItems.filter(m => !m.is_available).length} hidden)</span>
-          </div>
-
-          {/* Category filter */}
-          <div className="pos-categories">
-            {CATEGORIES.filter(c => c === 'all' || categoryCounts[c] > 0).map(cat => (
-              <button key={cat} className="pos-cat-btn" data-active={category === cat} onClick={() => setCategory(cat)}>
-                {cat} {categoryCounts[cat] > 0 && cat !== 'all' && `(${categoryCounts[cat]})`}
+          {/* Category + unavailable toggle row */}
+          <div className="pos-cat-row">
+            <div className="pos-categories">
+              {CATEGORIES.map(cat => {
+                const count = cat === 'all' ? menuItems.length : menuItems.filter(m => m.category === cat).length
+                if (count === 0 && cat !== 'all') return null
+                return (
+                  <button key={cat} className="pos-cat-btn" data-active={category === cat} onClick={() => setCategory(cat)}>
+                    {cat} {count > 0 && cat !== 'all' ? `(${count})` : ''}
+                  </button>
+                )
+              })}
+            </div>
+            {unavailableCount > 0 && (
+              <button className="pos-unavail-toggle" data-active={showUnavailable} onClick={() => setShowUnavailable(!showUnavailable)}>
+                {showUnavailable ? <Eye size={12} /> : <EyeOff size={12} />}
+                {showUnavailable ? 'Hide unavailable' : `Show unavailable (${unavailableCount})`}
               </button>
-            ))}
+            )}
           </div>
 
-          {/* Menu items grid */}
+          {/* Menu grid */}
           {filtered.length === 0 ? (
             <div className="pos-empty">
               <UtensilsCrossed size={40} style={{ color: 'var(--slate-300)' }} />
               <p>No items in this category</p>
-              <button className="pos-add-item-btn" onClick={() => setShowAddItem(true)}><Plus size={14} /> Add Menu Item</button>
+              <button className="pos-add-btn" onClick={openAddItem}><Plus size={14} /> Add Menu Item</button>
             </div>
           ) : (
             <div className="pos-grid">
               {filtered.map(item => {
                 const inOrder = orderItems.find(o => o.menu_item_id === item.id)
+                const isUnavail = !item.is_available
                 return (
-                  <button key={item.id} className="pos-item" data-in-order={!!inOrder} style={{opacity: item.is_available ? 1 : 0.45, pointerEvents: item.is_available ? "auto" : "none"}} onClick={() => item.is_available ? addToOrder(item) : undefined}>
-                    <div className="pos-item-top">
-                      <span className="pos-item-cat">{item.category}</span>
-                      {inOrder && <span className="pos-item-qty">{inOrder.quantity}</span>}
-                    </div>
-                    <p className="pos-item-name">{item.name}</p>
-                    {item.description && <p className="pos-item-desc">{item.description}</p>}
-                    <p className="pos-item-price">{formatCurrency(item.price)}</p>
-                    <div className="pos-item-actions" onClick={e => e.stopPropagation()} style={{pointerEvents:"all"}}>
-                      <button className="pos-item-edit" onClick={() => openEditItem(item)}>Edit</button>
-                      <button className="pos-item-toggle" data-active={item.is_available} onClick={() => toggleItemAvailability(item.id, item.is_available)}>
-                        {item.is_available ? "Available" : "86d"}
+                  <div key={item.id} className="pos-item-wrap" style={{ opacity: isUnavail ? 0.5 : 1 }}>
+                    {/* Clickable area for ordering */}
+                    <button
+                      className="pos-item"
+                      data-in-order={!!inOrder}
+                      data-unavail={isUnavail}
+                      onClick={() => !isUnavail && addToOrder(item)}
+                      disabled={isUnavail}
+                    >
+                      <div className="pos-item-top">
+                        <span className="pos-item-cat">{item.category}</span>
+                        {inOrder && <span className="pos-item-qty">{inOrder.quantity}</span>}
+                        {isUnavail && <span className="pos-item-unavail-badge">Unavailable</span>}
+                      </div>
+                      <p className="pos-item-name">{item.name}</p>
+                      {item.description && <p className="pos-item-desc">{item.description}</p>}
+                      <div className="pos-item-prices">
+                        <p className="pos-item-price">{formatCurrency(item.price)}</p>
+                        {item.available_room_service && item.room_service_price && (
+                          <p className="pos-item-rs-price">RS: {formatCurrency(item.room_service_price)}</p>
+                        )}
+                        {item.available_room_service && !item.room_service_price && (
+                          <p className="pos-item-rs-badge">✓ Room service</p>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Management actions below card */}
+                    <div className="pos-item-actions">
+                      <button className="pos-item-action-btn edit" onClick={() => openEditItem(item)} title="Edit item">
+                        <Pencil size={11} /> Edit
+                      </button>
+                      <button
+                        className="pos-item-action-btn avail"
+                        data-available={item.is_available}
+                        onClick={() => toggleAvailability(item)}
+                        title={item.is_available ? 'Mark as unavailable (86)' : 'Mark as available'}
+                      >
+                        {item.is_available ? '✓ Available — click to 86' : '✗ Unavailable — click to restore'}
+                      </button>
+                      <button className="pos-item-action-btn del" onClick={() => setDeleteConfirmId(item.id)} title="Delete item">
+                        <Trash2 size={11} />
                       </button>
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
@@ -289,11 +335,11 @@ export default function POSPage() {
               {itemCount > 0 && <span className="pos-order-count">{itemCount}</span>}
             </div>
             {orderType === 'dine_in' && (
-              <input className="pos-table-input" value={tableNumber} onChange={e => setTableNumber(e.target.value)} placeholder="Table number..." />
+              <input className="pos-table-input" value={tableNumber} onChange={e => setTableNumber(e.target.value)} placeholder="Table number (optional)..." />
             )}
             {orderType === 'room_service' && (
               <select className="pos-table-input" value={selectedRoomId} onChange={e => setSelectedRoomId(e.target.value)}>
-                <option value="">Select occupied room...</option>
+                <option value="">Select room...</option>
                 {rooms.map(r => <option key={r.id} value={r.id}>Room {r.number}</option>)}
               </select>
             )}
@@ -306,7 +352,7 @@ export default function POSPage() {
             </div>
           ) : orderItems.length === 0 ? (
             <div className="pos-order-empty">
-              <p>Tap menu items to add to order</p>
+              <p>Tap any menu item to add it to the order</p>
             </div>
           ) : (
             <>
@@ -315,12 +361,12 @@ export default function POSPage() {
                   <div key={item.menu_item_id} className="pos-order-row">
                     <div className="pos-order-item-info">
                       <p className="pos-order-item-name">{item.name}</p>
-                      <p className="pos-order-item-price">{formatCurrency(item.price)}</p>
+                      <p className="pos-order-item-price">{formatCurrency(item.price)} each</p>
                     </div>
                     <div className="pos-qty-controls">
-                      <button className="pos-qty-btn" onClick={() => removeFromOrder(item.menu_item_id)}><Minus size={12} /></button>
+                      <button className="pos-qty-btn" onClick={() => changeQty(item.menu_item_id, -1)}><Minus size={12} /></button>
                       <span className="pos-qty">{item.quantity}</span>
-                      <button className="pos-qty-btn" onClick={() => addToOrder({ id: item.menu_item_id, name: item.name, price: item.price, is_available: true, category: '', description: null })}><Plus size={12} /></button>
+                      <button className="pos-qty-btn" onClick={() => changeQty(item.menu_item_id, 1)}><Plus size={12} /></button>
                     </div>
                     <p className="pos-order-item-total">{formatCurrency(item.price * item.quantity)}</p>
                   </div>
@@ -344,42 +390,86 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Add Menu Item Modal */}
-      {showAddItem && (
-        <div className="modal-overlay" onClick={() => setShowAddItem(false)}>
+      {/* Add / Edit Item Modal */}
+      {showItemModal && (
+        <div className="modal-overlay" onClick={closeItemModal}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editingItem ? "Edit Menu Item" : "Add Menu Item"}</h3>
-              <button className="modal-close" onClick={() => { setShowAddItem(false); setEditingItem(null); setNewName(""); setNewCategory("lunch"); setNewPrice(""); setNewDesc(""); }}><X size={16} /></button>
+              <h3>{editingItem ? `Edit: ${editingItem.name}` : 'Add Menu Item'}</h3>
+              <button className="modal-close" onClick={closeItemModal}><X size={16} /></button>
             </div>
             <div className="modal-body">
-              <div className="modal-field"><label>Item Name *</label><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Jollof Rice" /></div>
+              <div className="modal-field">
+                <label>Item Name *</label>
+                <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. Jollof Rice with Assorted Meat" autoFocus />
+              </div>
               <div className="modal-row2">
                 <div className="modal-field">
                   <label>Category</label>
-                  <select value={newCategory} onChange={e => setNewCategory(e.target.value)}>
+                  <select value={itemCategory} onChange={e => setItemCategory(e.target.value)}>
                     {CATEGORIES.filter(c => c !== 'all').map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <div className="modal-field"><label>Price (NGN) *</label><input type="number" value={newPrice} onChange={e => setNewPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="2500" /></div>
+                <div className="modal-field">
+                  <label>Dine-in / Bar Price (NGN) *</label>
+                  <input type="number" value={itemPrice} onChange={e => setItemPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="5500" />
+                </div>
               </div>
-              <div className="modal-field"><label>Description</label><input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description (optional)" /></div>
               <div className="modal-field">
-                <label className="checkbox-label" style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:500,color:"var(--slate-700)",cursor:"pointer",textTransform:"none",letterSpacing:0}}>
-                  <input type="checkbox" checked={availableRoomService} onChange={e => setAvailableRoomService(e.target.checked)} style={{width:16,height:16,accentColor:"var(--navy-800)"}} />
+                <label>Description</label>
+                <input value={itemDesc} onChange={e => setItemDesc(e.target.value)} placeholder="Brief description shown on menu" />
+              </div>
+              <div className="modal-field">
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={itemRoomService} onChange={e => setItemRoomService(e.target.checked)} />
                   Available for room service
                 </label>
               </div>
-              {availableRoomService && (
+              {itemRoomService && (
                 <div className="modal-field">
-                  <label>Room Service Price (leave blank for same price)</label>
-                  <input type="number" value={roomServicePriceOverride} onChange={e => setRoomServicePriceOverride(e.target.value === "" ? "" : Number(e.target.value))} placeholder={`Same as menu price (${newPrice || "0"})`} />
+                  <label>Room Service Price (NGN) — leave blank for same price</label>
+                  <input
+                    type="number"
+                    value={itemRoomServicePrice}
+                    onChange={e => setItemRoomServicePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder={itemPrice ? `Same as dine-in (${formatCurrency(Number(itemPrice))})` : 'Same as dine-in price'}
+                  />
                 </div>
               )}
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowAddItem(false)}>Cancel</button>
-              <button className="modal-save" onClick={addMenuItem} disabled={savingItem || !newName || newPrice === ''}>{savingItem ? 'Saving...' : 'Add to Menu'}</button>
+              <button className="modal-cancel" onClick={closeItemModal}>Cancel</button>
+              <button
+                className="modal-save"
+                onClick={saveItem}
+                disabled={savingItem || !itemName || itemPrice === ''}
+              >
+                {savingItem ? 'Saving...' : editingItem ? 'Save Changes' : 'Add to Menu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deleteConfirmId && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmId(null)}>
+          <div className="modal-card small" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Delete Menu Item</h3>
+              <button className="modal-close" onClick={() => setDeleteConfirmId(null)}><X size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 14, color: 'var(--slate-600)', margin: 0 }}>
+                This will permanently remove <strong>{menuItems.find(m => m.id === deleteConfirmId)?.name}</strong> from your menu. This cannot be undone.
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                Tip: If the item is temporarily out of stock, use the <strong>Available / 86</strong> toggle instead of deleting.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-cancel" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
+              <button className="modal-delete" onClick={() => deleteItem(deleteConfirmId)}>Delete Permanently</button>
             </div>
           </div>
         </div>
@@ -390,33 +480,56 @@ export default function POSPage() {
         .pos-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
         .pos-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .pos-sub { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
-        .pos-add-item-btn { display: flex; align-items: center; gap: 6px; padding: 9px 16px; background: var(--navy-800); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
+        .pos-add-btn { display: flex; align-items: center; gap: 6px; padding: 9px 16px; background: var(--navy-800); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
+
         .pos-body { display: flex; gap: 20px; align-items: flex-start; }
         .pos-menu { flex: 1; min-width: 0; }
+
         .pos-order-type { display: flex; gap: 6px; margin-bottom: 14px; background: var(--slate-100); border-radius: 10px; padding: 4px; }
         .pos-type-btn { flex: 1; padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; cursor: pointer; color: var(--slate-500); background: transparent; text-transform: capitalize; }
         .pos-type-btn[data-active="true"] { background: white; color: var(--slate-800); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        .pos-categories { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+
+        .pos-cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .pos-categories { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
         .pos-cat-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; text-transform: capitalize; }
         .pos-cat-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
+        .pos-unavail-toggle { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; white-space: nowrap; }
+        .pos-unavail-toggle[data-active="true"] { background: var(--slate-200); color: var(--slate-700); }
+
         .pos-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px; color: var(--text-muted); }
         .pos-empty p { font-size: 14px; font-weight: 600; margin: 0; }
-        .pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-        .pos-item { background: white; border: 1.5px solid var(--slate-200); border-radius: 12px; padding: 14px; text-align: left; cursor: pointer; transition: all 0.12s; font-family: 'DM Sans', sans-serif; display: flex; flex-direction: column; gap: 4px; }
-        .pos-item:hover { border-color: var(--navy-600); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-        .pos-item[data-in-order="true"] { border-color: var(--gold-400); background: var(--gold-100); }
-        .pos-item-top { display: flex; align-items: center; justify-content: space-between; }
+
+        .pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+
+        .pos-item-wrap { display: flex; flex-direction: column; gap: 0; border: 1.5px solid var(--slate-200); border-radius: 12px; overflow: hidden; transition: all 0.12s; }
+        .pos-item-wrap:hover { border-color: var(--navy-400); box-shadow: 0 4px 12px rgba(0,0,0,0.07); }
+
+        .pos-item { background: white; padding: 14px; text-align: left; cursor: pointer; font-family: 'DM Sans', sans-serif; display: flex; flex-direction: column; gap: 4px; border: none; width: 100%; }
+        .pos-item[data-in-order="true"] { background: var(--gold-100); }
+        .pos-item[data-unavail="true"] { cursor: default; }
+        .pos-item-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
         .pos-item-cat { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-        .pos-item-qty { width: 20px; height: 20px; background: var(--gold-500); color: white; border-radius: 50%; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .pos-item-qty { width: 20px; height: 20px; background: var(--gold-500); color: white; border-radius: 50%; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .pos-item-unavail-badge { font-size: 9px; font-weight: 700; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 20px; }
         .pos-item-name { font-size: 14px; font-weight: 700; color: var(--slate-800); margin: 4px 0 0; }
         .pos-item-desc { font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4; }
-        .pos-item-price { font-size: 13px; font-weight: 700; color: var(--navy-800); margin: 4px 0 0; }
-        .pos-item-actions { display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid var(--slate-100); padding-top: 8px; }
-        .pos-item-edit { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: "DM Sans", sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
-        .pos-item-edit:hover { background: var(--slate-100); }
-        .pos-item-toggle { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: "DM Sans", sans-serif; border: none; cursor: pointer; }
-        .pos-item-toggle[data-active="true"] { background: #d1fae5; color: #065f46; }
-        .pos-item-toggle[data-active="false"] { background: #fee2e2; color: #991b1b; }
+        .pos-item-prices { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+        .pos-item-price { font-size: 13px; font-weight: 700; color: var(--navy-800); margin: 0; }
+        .pos-item-rs-price { font-size: 11px; color: #065f46; font-weight: 600; margin: 0; }
+        .pos-item-rs-badge { font-size: 10px; color: #065f46; font-weight: 600; margin: 0; }
+
+        /* Management action bar */
+        .pos-item-actions { display: flex; border-top: 1px solid var(--slate-100); background: var(--slate-50); }
+        .pos-item-action-btn { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 4px; font-size: 10px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; cursor: pointer; transition: background 0.1s; flex-shrink: 0; }
+        .pos-item-action-btn.edit { background: none; color: var(--slate-500); width: 48px; border-right: 1px solid var(--slate-200); }
+        .pos-item-action-btn.edit:hover { background: var(--slate-200); color: var(--slate-700); }
+        .pos-item-action-btn.del { background: none; color: var(--slate-400); width: 32px; border-left: 1px solid var(--slate-200); }
+        .pos-item-action-btn.del:hover { background: #fee2e2; color: #991b1b; }
+        .pos-item-action-btn.avail { flex: 1; background: none; font-size: 10px; text-align: center; }
+        .pos-item-action-btn.avail[data-available="true"] { color: #065f46; }
+        .pos-item-action-btn.avail[data-available="true"]:hover { background: #fef3c7; color: #92400e; }
+        .pos-item-action-btn.avail[data-available="false"] { color: #991b1b; }
+        .pos-item-action-btn.avail[data-available="false"]:hover { background: #d1fae5; color: #065f46; }
 
         /* Order panel */
         .pos-order { width: 300px; flex-shrink: 0; background: white; border: 1px solid var(--slate-200); border-radius: 14px; overflow: hidden; position: sticky; top: 80px; display: flex; flex-direction: column; }
@@ -425,10 +538,9 @@ export default function POSPage() {
         .pos-order-title-row { display: flex; align-items: center; gap: 8px; }
         .pos-order-title { font-family: 'Playfair Display', serif; font-size: 16px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .pos-order-count { background: var(--gold-500); color: white; font-size: 11px; font-weight: 700; border-radius: 20px; padding: 1px 8px; }
-        .pos-table-input { width: 100%; padding: 8px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 13px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; }
-        .pos-table-input:focus { border-color: var(--gold-500); }
-        .pos-submitted { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--slate-700); font-size: 14px; font-weight: 600; }
-        .pos-order-empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
+        .pos-table-input { width: 100%; padding: 8px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 13px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; box-sizing: border-box; }
+        .pos-submitted { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: #065f46; font-size: 14px; font-weight: 600; }
+        .pos-order-empty { padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
         .pos-order-items { flex: 1; overflow-y: auto; max-height: 350px; }
         .pos-order-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--slate-100); }
         .pos-order-item-info { flex: 1; min-width: 0; }
@@ -446,9 +558,10 @@ export default function POSPage() {
         .pos-submit-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; font-family: 'DM Sans', sans-serif; background: var(--navy-800); color: white; border: none; cursor: pointer; }
         .pos-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* Modal */
+        /* Modals */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-card { background: white; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 24px 48px rgba(0,0,0,0.2); overflow: hidden; }
+        .modal-card.small { max-width: 380px; }
         .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--slate-200); }
         .modal-header h3 { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .modal-close { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--slate-200); background: white; color: var(--slate-400); cursor: pointer; display: flex; align-items: center; justify-content: center; }
@@ -456,16 +569,16 @@ export default function POSPage() {
         .modal-field { display: flex; flex-direction: column; gap: 6px; }
         .modal-field label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--slate-500); }
         .modal-field input, .modal-field select { padding: 10px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; }
-        .modal-field input:focus { border-color: var(--gold-500); }
+        .modal-field input:focus, .modal-field select:focus { border-color: var(--gold-500); box-shadow: 0 0 0 3px rgba(201,168,76,0.1); }
         .modal-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--slate-200); }
         .modal-cancel { padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
         .modal-save { padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; background: var(--navy-800); color: white; border: none; cursor: pointer; }
         .modal-save:disabled { opacity: 0.5; cursor: not-allowed; }
+        .modal-delete { padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; background: #ef4444; color: white; border: none; cursor: pointer; }
+        .checkbox-label { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 8px !important; font-size: 13px !important; font-weight: 500 !important; color: var(--slate-700) !important; cursor: pointer !important; text-transform: none !important; letter-spacing: 0 !important; }
+        .checkbox-label input { width: 16px; height: 16px; accent-color: var(--navy-800); }
       `}</style>
     </div>
   )
 }
-
-
-

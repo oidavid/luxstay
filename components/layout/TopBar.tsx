@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { Bell, Plus, Building2 } from 'lucide-react'
+import { Bell, Plus, ChevronDown } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -31,6 +31,7 @@ export function TopBar() {
 
   const [hotelName, setHotelName] = useState('')
   const [userName,  setUserName]  = useState('')
+  const [initials,  setInitials]  = useState('U')
 
   useEffect(() => {
     async function load() {
@@ -43,6 +44,7 @@ export function TopBar() {
         .single()
       if (profile) {
         setUserName(profile.full_name)
+        setInitials(profile.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase())
         const { data: hotel } = await supabase
           .from('hotels')
           .select('name')
@@ -57,34 +59,37 @@ export function TopBar() {
   return (
     <header className="lux-topbar">
 
-      {/* Left — hotel name + page context */}
+      {/* Left — page title + date */}
       <div className="lux-topbar-left">
-        {hotelName && (
-          <div className="lux-topbar-hotel">
-            <Building2 size={13} />
-            <span>{hotelName}</span>
-          </div>
-        )}
         <h1 className="lux-topbar-title font-display">{title}</h1>
+        <p className="lux-topbar-date">{today}</p>
       </div>
 
-      {/* Right — actions */}
+      {/* Right */}
       <div className="lux-topbar-right">
-        {userName && (
-          <span className="lux-topbar-username">
-            {userName}
-          </span>
-        )}
 
+        {/* New Reservation button */}
         <Link href="/reservations/new" className="lux-topbar-new-btn">
           <Plus size={15} />
           <span className="lux-topbar-new-label">New Reservation</span>
         </Link>
 
+        {/* Notifications */}
         <button className="lux-topbar-bell">
           <Bell size={17} />
           <span className="lux-topbar-bell-dot" />
         </button>
+
+        {/* User + hotel pill */}
+        <div className="lux-topbar-user">
+          <div className="lux-topbar-avatar">{initials}</div>
+          <div className="lux-topbar-user-info">
+            <p className="lux-topbar-user-name">{userName || '...'}</p>
+            <p className="lux-topbar-hotel-name">{hotelName || '...'}</p>
+          </div>
+          <ChevronDown size={14} className="lux-topbar-chevron" />
+        </div>
+
       </div>
 
       <style>{`
@@ -105,29 +110,21 @@ export function TopBar() {
 
         .lux-topbar-left { display: flex; flex-direction: column; gap: 1px; }
 
-        .lux-topbar-hotel {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 12px;
-          font-weight: 700;
-          color: var(--navy-900);
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          background: var(--gold-100);
-          border: 1.5px solid var(--gold-400);
-          border-radius: 6px;
-          padding: 3px 10px 3px 8px;
-        }
-
         .lux-topbar-title {
-          font-size: 17px;
+          font-size: 18px;
           font-weight: 600;
           color: var(--slate-800);
           margin: 0;
           line-height: 1.2;
         }
-        @media (max-width: 768px) { .lux-topbar-title { font-size: 15px; } }
+        @media (max-width: 768px) { .lux-topbar-title { font-size: 16px; } }
+
+        .lux-topbar-date {
+          font-size: 11px;
+          color: var(--text-muted);
+          margin: 0;
+        }
+        @media (max-width: 480px) { .lux-topbar-date { display: none; } }
 
         .lux-topbar-right {
           display: flex;
@@ -135,19 +132,11 @@ export function TopBar() {
           gap: 10px;
         }
 
-        .lux-topbar-username {
-          font-size: 13px;
-          font-weight: 500;
-          color: var(--slate-600);
-          white-space: nowrap;
-        }
-        @media (max-width: 640px) { .lux-topbar-username { display: none; } }
-
         .lux-topbar-new-btn {
           display: flex;
           align-items: center;
           gap: 6px;
-          padding: 8px 14px;
+          padding: 8px 16px;
           background: var(--navy-800);
           color: white;
           font-size: 13px;
@@ -185,8 +174,70 @@ export function TopBar() {
           border-radius: 50%;
           border: 1.5px solid white;
         }
+
+        /* User pill */
+        .lux-topbar-user {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 6px 12px 6px 6px;
+          border-radius: 10px;
+          border: 1px solid var(--slate-200);
+          background: var(--slate-100);
+          cursor: pointer;
+          transition: background 0.12s, border-color 0.12s;
+          min-width: 160px;
+        }
+        .lux-topbar-user:hover {
+          background: white;
+          border-color: var(--gold-400);
+        }
+        @media (max-width: 640px) { .lux-topbar-user { display: none; } }
+
+        .lux-topbar-avatar {
+          width: 30px; height: 30px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, var(--navy-800), var(--navy-600));
+          color: var(--gold-400);
+          font-size: 11px;
+          font-weight: 700;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+          border: 1px solid var(--gold-500);
+        }
+
+        .lux-topbar-user-info {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .lux-topbar-user-name {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--slate-800);
+          margin: 0;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          line-height: 1.3;
+        }
+
+        .lux-topbar-hotel-name {
+          font-size: 11px;
+          color: var(--gold-500);
+          font-weight: 600;
+          margin: 0;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          line-height: 1.3;
+        }
+
+        .lux-topbar-chevron {
+          color: var(--slate-400);
+          flex-shrink: 0;
+        }
       `}</style>
     </header>
   )
 }
-

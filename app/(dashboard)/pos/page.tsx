@@ -187,13 +187,14 @@ export default function POSPage() {
     setSubmitting(false)
   }
 
+  const [showUnavailable, setShowUnavailable] = useState(false)
   const filtered = menuItems.filter(m => {
-    if (!m.is_available) return false
+    if (!m.is_available && !showUnavailable) return false
     return category === 'all' || m.category === category
   })
 
   const categoryCounts = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = cat === 'all' ? menuItems.filter(m => m.is_available).length : menuItems.filter(m => m.category === cat && m.is_available).length
+    acc[cat] = cat === 'all' ? menuItems.length : menuItems.filter(m => m.category === cat).length
     return acc
   }, {} as Record<string, number>)
 
@@ -228,6 +229,15 @@ export default function POSPage() {
             ))}
           </div>
 
+          {/* Show unavailable toggle */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:"var(--slate-500)",cursor:"pointer"}}>
+              <input type="checkbox" checked={showUnavailable} onChange={e => setShowUnavailable(e.target.checked)} style={{accentColor:"var(--navy-800)"}} />
+              Show unavailable items
+            </label>
+            <span style={{fontSize:11,color:"var(--text-muted)"}}>({menuItems.filter(m => !m.is_available).length} hidden)</span>
+          </div>
+
           {/* Category filter */}
           <div className="pos-categories">
             {CATEGORIES.filter(c => c === 'all' || categoryCounts[c] > 0).map(cat => (
@@ -249,7 +259,7 @@ export default function POSPage() {
               {filtered.map(item => {
                 const inOrder = orderItems.find(o => o.menu_item_id === item.id)
                 return (
-                  <button key={item.id} className="pos-item" data-in-order={!!inOrder} onClick={() => addToOrder(item)}>
+                  <button key={item.id} className="pos-item" data-in-order={!!inOrder} style={{opacity: item.is_available ? 1 : 0.45, pointerEvents: item.is_available ? "auto" : "none"}} onClick={() => item.is_available ? addToOrder(item) : undefined}>
                     <div className="pos-item-top">
                       <span className="pos-item-cat">{item.category}</span>
                       {inOrder && <span className="pos-item-qty">{inOrder.quantity}</span>}
@@ -257,7 +267,7 @@ export default function POSPage() {
                     <p className="pos-item-name">{item.name}</p>
                     {item.description && <p className="pos-item-desc">{item.description}</p>}
                     <p className="pos-item-price">{formatCurrency(item.price)}</p>
-                    <div className="pos-item-actions" onClick={e => e.stopPropagation()}>
+                    <div className="pos-item-actions" onClick={e => e.stopPropagation()} style={{pointerEvents:"all"}}>
                       <button className="pos-item-edit" onClick={() => openEditItem(item)}>Edit</button>
                       <button className="pos-item-toggle" data-active={item.is_available} onClick={() => toggleItemAvailability(item.id, item.is_available)}>
                         {item.is_available ? "Available" : "86d"}
@@ -456,5 +466,6 @@ export default function POSPage() {
     </div>
   )
 }
+
 
 

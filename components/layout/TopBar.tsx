@@ -93,7 +93,7 @@ export function TopBar() {
           color: var(--slate-800); margin: 0; line-height: 1.2;
         }
         @media (max-width: 768px) { .lux-topbar-title { font-size: 16px; } }
-        .lux-topbar-date { font-size: 11px; color: var(--text-muted); margin: 0; }
+        .lux-topbar-date { font-size: 11px; color: var(--slate-600); margin: 0; font-weight: 500; }
         @media (max-width: 480px) { .lux-topbar-date { display: none; } }
 
         .lux-topbar-right { display: flex; align-items: center; gap: 10px; }
@@ -143,3 +143,4 @@ export function TopBar() {
     </header>
   )
 }
+

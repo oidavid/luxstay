@@ -189,7 +189,7 @@ export function Sidebar() {
           font-family: 'Playfair Display', serif;
           font-size: 15px;
           font-weight: 700;
-          color: rgba(255,255,255,0.5);
+          color: rgba(255,255,255,0.85);
           letter-spacing: 0.02em;
         }
         .lux-platform-tag {
@@ -197,8 +197,8 @@ export function Sidebar() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.12em;
-          color: rgba(255,255,255,0.2);
-          background: rgba(255,255,255,0.06);
+          color: rgba(255,255,255,0.5);
+          background: rgba(255,255,255,0.08);
           padding: 2px 7px;
           border-radius: 20px;
         }
@@ -333,3 +333,4 @@ export function Sidebar() {
     </>
   )
 }
+

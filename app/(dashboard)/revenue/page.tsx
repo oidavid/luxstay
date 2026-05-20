@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import {
   Sparkles, TrendingUp, TrendingDown, Plus, Pencil, Trash2,
   X, Check, Zap, Brain, Calendar, DollarSign, RefreshCw,
-  Clock, Share2, MessageSquare, ExternalLink, AlertCircle
+  Share2, MessageSquare, ExternalLink, AlertCircle, Filter,
+  ChevronDown, Edit3
 } from 'lucide-react'
 
 type RatePlan = {
@@ -33,12 +34,14 @@ type AISuggestion = {
   recommended_action: string
   projected_impact: string
   status: string
+  accepted_at: string | null
 }
 
 type Hotel = {
   id: string
   name: string
   currency: string
+  phone: string | null
   vat_rate: number
 }
 
@@ -59,6 +62,16 @@ function adjustedRate(base: number, adjType: string, adjValue: number) {
   return base + adjValue
 }
 
+function timeAgo(dateStr: string) {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = Math.floor((now.getTime() - date.getTime()) / 60000)
+  if (diff < 1) return 'just now'
+  if (diff < 60) return `${diff}m ago`
+  if (diff < 1440) return `${Math.floor(diff / 60)}h ago`
+  return `${Math.floor(diff / 1440)}d ago`
+}
+
 const BASE_RATE = 75000
 
 export default function RevenuePage() {
@@ -69,12 +82,22 @@ export default function RevenuePage() {
   const [loading, setLoading] = useState(true)
   const [generatingAI, setGeneratingAI] = useState(false)
   const [activeTab, setActiveTab] = useState<'advisor' | 'plans' | 'rules'>('advisor')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'dismissed'>('all')
 
-  // Accept modal state
-  const [acceptingId, setAcceptingId] = useState<string | null>(null)
+  // Accept / Modify modal
+  const [acceptingSuggestion, setAcceptingSuggestion] = useState<AISuggestion | null>(null)
   const [acceptDuration, setAcceptDuration] = useState(7)
-  const [acceptNote, setAcceptNote] = useState('')
+  const [modifiedAction, setModifiedAction] = useState('')
+  const [customDiscount, setCustomDiscount] = useState<number | ''>('')
+  const [isModifying, setIsModifying] = useState(false)
+
+  // Promote modal
   const [showPromote, setShowPromote] = useState<AISuggestion | null>(null)
+  const [whatsappMsg, setWhatsappMsg] = useState('')
+  const [socialMsg, setSocialMsg] = useState('')
+  const [editingWhatsapp, setEditingWhatsapp] = useState(false)
+  const [editingSocial, setEditingSocial] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   // Rate plan modal
   const [showModal, setShowModal] = useState(false)
@@ -100,9 +123,9 @@ export default function RevenuePage() {
     if (!profile) return
 
     const [{ data: hotelData }, { data: plans }, { data: sug }] = await Promise.all([
-      supabase.from('hotels').select('id,name,currency,vat_rate').eq('id', profile.hotel_id).single(),
+      supabase.from('hotels').select('id,name,currency,vat_rate,phone').eq('id', profile.hotel_id).single(),
       supabase.from('rate_plans').select('*').eq('hotel_id', profile.hotel_id).order('priority'),
-      supabase.from('ai_revenue_suggestions').select('*').eq('hotel_id', profile.hotel_id).order('created_at', { ascending: false }).limit(20)
+      supabase.from('ai_revenue_suggestions').select('*').eq('hotel_id', profile.hotel_id).order('created_at', { ascending: false }).limit(50)
     ])
 
     setHotel(hotelData)
@@ -115,8 +138,8 @@ export default function RevenuePage() {
     if (!hotel) return
     setGeneratingAI(true)
 
-    // Delete today's pending suggestions first to avoid duplicates
     const today = new Date().toISOString().split('T')[0]
+    // Only clear today's pending — keep history
     await supabase.from('ai_revenue_suggestions')
       .delete()
       .eq('hotel_id', hotel.id)
@@ -127,31 +150,29 @@ export default function RevenuePage() {
     const total = rooms?.length ?? 0
     const occupied = rooms?.filter(r => r.status === 'occupied').length ?? 0
     const occupancyRate = total > 0 ? Math.round((occupied / total) * 100) : 0
-    const today2 = new Date()
-    const dayName = DAYS[today2.getDay()]
-    const isWeekend = today2.getDay() === 5 || today2.getDay() === 6
-    const daysUntilWeekend = today2.getDay() <= 4 ? 5 - today2.getDay() : 0
+    const now = new Date()
+    const dayName = DAYS[now.getDay()]
+    const daysUntilWeekend = now.getDay() <= 4 ? 5 - now.getDay() : 0
 
     const prompt = `You are a hotel revenue management AI for ${hotel.name} in Nigeria.
 
 Current data:
-- Total rooms: ${total}
-- Occupied: ${occupied} (${occupancyRate}% occupancy)
-- Today: ${dayName} ${today2.toLocaleDateString('en-NG')}
+- Total rooms: ${total}, Occupied: ${occupied} (${occupancyRate}% occupancy)
+- Today: ${dayName} ${now.toLocaleDateString('en-NG')}
 - Days until weekend: ${daysUntilWeekend}
 - Base rate: ${formatCurrency(BASE_RATE, hotel.currency)}/night
 - Active rate plans: ${ratePlans.filter(p => p.is_active).map(p => p.name).join(', ')}
 
-Generate exactly 3 specific revenue recommendations. Be highly specific with naira amounts.
+Generate exactly 3 specific revenue recommendations with exact naira figures.
 
-Respond ONLY with a valid JSON array:
+Respond ONLY with valid JSON array:
 [
   {
     "suggestion_type": "rate_adjustment",
-    "title": "Short title (max 8 words)",
-    "reasoning": "2-3 sentences explaining WHY based on exact data above",
-    "recommended_action": "Exactly what to do with specific rates and dates",
-    "projected_impact": "Specific projected impact e.g. +₦450,000 this weekend"
+    "title": "Short title max 8 words",
+    "reasoning": "2-3 sentences with specific data from above",
+    "recommended_action": "Specific action with exact rates and dates",
+    "projected_impact": "Specific revenue impact with numbers"
   }
 ]`
 
@@ -163,7 +184,7 @@ Respond ONLY with a valid JSON array:
       })
       const data = await response.json()
       if (data.suggestions) {
-        const toInsert = data.suggestions.map((s: Omit<AISuggestion, 'id' | 'suggestion_date' | 'status'>) => ({
+        const toInsert = data.suggestions.map((s: Omit<AISuggestion, 'id' | 'suggestion_date' | 'status' | 'accepted_at'>) => ({
           hotel_id: hotel.id,
           suggestion_date: today,
           suggestion_type: s.suggestion_type,
@@ -182,17 +203,29 @@ Respond ONLY with a valid JSON array:
     setGeneratingAI(false)
   }
 
-  async function acceptSuggestion(id: string) {
-    const endDate = new Date()
-    endDate.setDate(endDate.getDate() + acceptDuration)
+  function openAccept(s: AISuggestion, modify = false) {
+    setAcceptingSuggestion(s)
+    setModifiedAction(s.recommended_action)
+    setCustomDiscount('')
+    setIsModifying(modify)
+    setAcceptDuration(7)
+  }
+
+  async function confirmAccept() {
+    if (!acceptingSuggestion) return
+    const finalAction = isModifying && modifiedAction ? modifiedAction : acceptingSuggestion.recommended_action
     await supabase.from('ai_revenue_suggestions').update({
       status: 'accepted',
-      accepted_at: new Date().toISOString()
-    }).eq('id', id)
-    setSuggestions(prev => prev.map(s => s.id === id ? { ...s, status: 'accepted' } : s))
-    const accepted = suggestions.find(s => s.id === id)
-    if (accepted) setShowPromote(accepted)
-    setAcceptingId(null)
+      accepted_at: new Date().toISOString(),
+      recommended_action: finalAction
+    }).eq('id', acceptingSuggestion.id)
+    setSuggestions(prev => prev.map(s => s.id === acceptingSuggestion.id
+      ? { ...s, status: 'accepted', recommended_action: finalAction, accepted_at: new Date().toISOString() }
+      : s
+    ))
+    const updated = { ...acceptingSuggestion, recommended_action: finalAction }
+    setAcceptingSuggestion(null)
+    openPromote(updated)
   }
 
   async function dismissSuggestion(id: string) {
@@ -200,15 +233,54 @@ Respond ONLY with a valid JSON array:
     setSuggestions(prev => prev.map(s => s.id === id ? { ...s, status: 'dismissed' } : s))
   }
 
-  function generateWhatsApp(s: AISuggestion) {
-    const text = `🏨 *${hotel?.name} — Special Offer*\n\n✨ ${s.title}\n\n${s.recommended_action}\n\n📈 ${s.projected_impact}\n\nBook now: https://luxstay-nu.vercel.app/book`
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  function openPromote(s: AISuggestion) {
+    const lines = s.recommended_action
+      .split(/[.!]/)
+      .filter(l => l.trim().length > 10)
+      .slice(0, 3)
+      .map(l => `• ${l.trim()}`)
+      .join('\n')
+
+    const wa = [
+      `🏨 *${hotel?.name}*`,
+      ``,
+      `*${s.title}*`,
+      ``,
+      lines,
+      ``,
+      `📞 ${hotel?.phone ?? 'Call us to book'}`,
+      `🔗 Book direct: https://luxstay-nu.vercel.app/book`,
+      ``,
+      `_Limited time offer. Terms apply._`
+    ].join('\n')
+
+    const social = [
+      `🌟 Special offer at ${hotel?.name}!`,
+      ``,
+      `${s.title}`,
+      ``,
+      lines,
+      ``,
+      `Book direct for the best rate guaranteed 👆`,
+      ``,
+      `#${hotel?.name?.replace(/\s/g, '') ?? 'Hotel'} #HotelDeals #Nigeria #Travel #Hospitality`
+    ].join('\n')
+
+    setWhatsappMsg(wa)
+    setSocialMsg(social)
+    setShowPromote(s)
+    setEditingWhatsapp(false)
+    setEditingSocial(false)
   }
 
-  function generateSocialPost(s: AISuggestion) {
-    const text = `🌟 Special offer at ${hotel?.name}!\n\n${s.title}\n\n${s.recommended_action}\n\n${s.projected_impact}\n\nBook directly and save! Link in bio. #${hotel?.name?.replace(/\s/g, '')} #HotelDeals #Nigeria`
-    navigator.clipboard.writeText(text)
-    alert('Social media post copied to clipboard!')
+  function sendWhatsApp() {
+    window.open(`https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`, '_blank')
+  }
+
+  function copySocial() {
+    navigator.clipboard.writeText(socialMsg)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   function openAddPlan() {
@@ -265,45 +337,54 @@ Respond ONLY with a valid JSON array:
     setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
   }
 
+  const filteredSuggestions = suggestions.filter(s => statusFilter === 'all' || s.status === statusFilter)
   const pendingCount = suggestions.filter(s => s.status === 'pending').length
   const acceptedCount = suggestions.filter(s => s.status === 'accepted').length
   const activePlans = ratePlans.filter(p => p.is_active)
   const weekendPlan = ratePlans.find(p => p.plan_type === 'weekend' && p.is_active)
   const weekendRate = weekendPlan ? adjustedRate(BASE_RATE, weekendPlan.adjustment_type, weekendPlan.adjustment_value) : BASE_RATE
 
+  // Group suggestions by date
+  const grouped = filteredSuggestions.reduce((acc, s) => {
+    const date = s.suggestion_date
+    if (!acc[date]) acc[date] = []
+    acc[date].push(s)
+    return acc
+  }, {} as Record<string, AISuggestion[]>)
+
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>
 
   return (
     <div className="rev-root">
 
-      {/* ── Clean Header ── */}
+      {/* Header */}
       <div className="rev-header">
         <div>
           <h2 className="rev-title">Revenue Intelligence</h2>
           <p className="rev-sub">
             {pendingCount > 0
-              ? `${pendingCount} AI recommendation${pendingCount > 1 ? 's' : ''} waiting for your review`
+              ? `${pendingCount} recommendation${pendingCount > 1 ? 's' : ''} waiting for your review`
               : acceptedCount > 0
-              ? `${acceptedCount} recommendation${acceptedCount > 1 ? 's' : ''} accepted and active`
+              ? `${acceptedCount} accepted today · ${activePlans.length} rate plans active`
               : 'Generate AI recommendations based on your live occupancy'
             }
           </p>
         </div>
         <button className="rev-generate-btn" onClick={generateAISuggestions} disabled={generatingAI}>
           {generatingAI
-            ? <><RefreshCw size={14} className="rev-spin" /> Analysing your hotel...</>
-            : <><Sparkles size={14} /> {suggestions.length > 0 ? 'Regenerate' : 'Generate AI Recommendations'}</>
+            ? <><RefreshCw size={14} className="rev-spin" /> Analysing...</>
+            : <><Sparkles size={14} /> {suggestions.length > 0 ? 'New Recommendations' : 'Generate Recommendations'}</>
           }
         </button>
       </div>
 
-      {/* ── KPI Strip ── */}
+      {/* KPIs */}
       <div className="rev-kpis">
         <div className="rev-kpi">
           <p className="rev-kpi-value">{activePlans.length}</p>
           <p className="rev-kpi-label">Active Rate Plans</p>
         </div>
-        <div className="rev-kpi" data-highlight={pendingCount > 0}>
+        <div className="rev-kpi" style={pendingCount > 0 ? { borderColor: 'var(--gold-400)', background: 'var(--gold-100)' } : {}}>
           <p className="rev-kpi-value" style={{ color: pendingCount > 0 ? 'var(--gold-500)' : undefined }}>{pendingCount}</p>
           <p className="rev-kpi-label">Pending Review</p>
         </div>
@@ -317,7 +398,7 @@ Respond ONLY with a valid JSON array:
         </div>
       </div>
 
-      {/* ── Tabs ── */}
+      {/* Tabs */}
       <div className="rev-tabs">
         {[
           { key: 'advisor', label: 'AI Advisor',  icon: Brain,       badge: pendingCount },
@@ -332,79 +413,105 @@ Respond ONLY with a valid JSON array:
         ))}
       </div>
 
-      {/* ── AI ADVISOR ── */}
+      {/* AI ADVISOR */}
       {activeTab === 'advisor' && (
         <div>
           {suggestions.length === 0 ? (
             <div className="rev-empty">
               <Brain size={48} style={{ color: 'var(--slate-300)' }} />
               <h3>Ready to analyse your hotel</h3>
-              <p>Click Generate above. The AI will read your live occupancy, day of week, and active rate plans to find specific revenue opportunities right now.</p>
+              <p>Click Generate above. The AI reads your live occupancy, day of week, and rate plans to find specific revenue opportunities.</p>
               <button className="rev-generate-btn" onClick={generateAISuggestions} disabled={generatingAI}>
                 <Sparkles size={14} /> {generatingAI ? 'Analysing...' : 'Generate Recommendations'}
               </button>
             </div>
           ) : (
-            <div className="rev-suggestions">
-              {suggestions.map(s => (
-                <div key={s.id} className="rev-card" data-status={s.status}>
-                  <div className="rev-card-header">
-                    <span className="rev-type-badge">{s.suggestion_type.replace('_', ' ')}</span>
-                    <span className="rev-card-date">{new Date(s.suggestion_date).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}</span>
-                    {s.status !== 'pending' && (
-                      <span className="rev-status-chip" data-status={s.status}>
-                        {s.status === 'accepted' ? <><Check size={10} /> Accepted</> : <><X size={10} /> Dismissed</>}
-                      </span>
-                    )}
+            <>
+              {/* Status filter */}
+              <div className="rev-filter-row">
+                <Filter size={13} style={{ color: 'var(--slate-400)' }} />
+                {(['all', 'pending', 'accepted', 'dismissed'] as const).map(f => (
+                  <button key={f} className="rev-filter-btn" data-active={statusFilter === f} onClick={() => setStatusFilter(f)}>
+                    {f === 'all' ? `All (${suggestions.length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${suggestions.filter(s => s.status === f).length})`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Grouped by date */}
+              {Object.entries(grouped).sort(([a], [b]) => b.localeCompare(a)).map(([date, items]) => (
+                <div key={date} className="rev-date-group">
+                  <div className="rev-date-label">
+                    <span>{new Date(date).toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+                    <span className="rev-date-count">{items.length} recommendation{items.length > 1 ? 's' : ''}</span>
                   </div>
 
-                  <h3 className="rev-card-title">{s.title}</h3>
-                  <p className="rev-card-reasoning">{s.reasoning}</p>
+                  <div className="rev-suggestions">
+                    {items.map((s, idx) => (
+                      <div key={s.id} className="rev-card" data-status={s.status}>
+                        <div className="rev-card-header">
+                          <span className="rev-card-num">#{idx + 1}</span>
+                          <span className="rev-type-badge">{s.suggestion_type.replace('_', ' ')}</span>
+                          <span className="rev-card-time">{s.accepted_at ? `Accepted ${timeAgo(s.accepted_at)}` : timeAgo(date + 'T12:00:00')}</span>
+                          {s.status !== 'pending' && (
+                            <span className="rev-status-chip" data-status={s.status}>
+                              {s.status === 'accepted' ? <><Check size={10} /> Active</> : <><X size={10} /> Dismissed</>}
+                            </span>
+                          )}
+                        </div>
 
-                  <div className="rev-card-action">
-                    <Zap size={13} style={{ color: 'var(--gold-500)', flexShrink: 0 }} />
-                    <p>{s.recommended_action}</p>
+                        <h3 className="rev-card-title">{s.title}</h3>
+                        <p className="rev-card-reasoning">{s.reasoning}</p>
+
+                        <div className="rev-card-action">
+                          <Zap size={13} style={{ color: 'var(--gold-500)', flexShrink: 0, marginTop: 2 }} />
+                          <p>{s.recommended_action}</p>
+                        </div>
+
+                        {s.projected_impact && (
+                          <div className="rev-card-impact">
+                            <TrendingUp size={13} style={{ color: '#10b981', flexShrink: 0 }} />
+                            <p>{s.projected_impact}</p>
+                          </div>
+                        )}
+
+                        {s.status === 'pending' && (
+                          <div className="rev-card-footer">
+                            <button className="rev-accept-btn" onClick={() => openAccept(s, false)}>
+                              <Check size={13} /> Accept
+                            </button>
+                            <button className="rev-modify-btn" onClick={() => openAccept(s, true)}>
+                              <Edit3 size={13} /> Modify & Accept
+                            </button>
+                            <button className="rev-dismiss-btn" onClick={() => dismissSuggestion(s.id)}>
+                              <X size={13} /> Dismiss
+                            </button>
+                          </div>
+                        )}
+
+                        {s.status === 'accepted' && (
+                          <div className="rev-card-footer">
+                            <button className="rev-promote-btn" onClick={() => openPromote(s)}>
+                              <Share2 size={13} /> Promote This Offer
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-
-                  {s.projected_impact && (
-                    <div className="rev-card-impact">
-                      <TrendingUp size={13} style={{ color: '#10b981', flexShrink: 0 }} />
-                      <p>{s.projected_impact}</p>
-                    </div>
-                  )}
-
-                  {s.status === 'pending' && (
-                    <div className="rev-card-footer">
-                      <button className="rev-accept-btn" onClick={() => setAcceptingId(s.id)}>
-                        <Check size={13} /> Accept
-                      </button>
-                      <button className="rev-dismiss-btn" onClick={() => dismissSuggestion(s.id)}>
-                        <X size={13} /> Dismiss
-                      </button>
-                    </div>
-                  )}
-
-                  {s.status === 'accepted' && (
-                    <div className="rev-card-footer">
-                      <button className="rev-promote-btn" onClick={() => setShowPromote(s)}>
-                        <Share2 size={13} /> Promote This Offer
-                      </button>
-                    </div>
-                  )}
                 </div>
               ))}
-            </div>
+            </>
           )}
         </div>
       )}
 
-      {/* ── RATE PLANS ── */}
+      {/* RATE PLANS */}
       {activeTab === 'plans' && (
         <div>
           <div className="rev-section-header">
             <div>
               <h3 className="rev-section-title">Rate Plans</h3>
-              <p className="rev-section-sub">Pricing tiers available at your property. Select a plan when creating reservations.</p>
+              <p className="rev-section-sub">Pricing tiers available at your property.</p>
             </div>
             <button className="rev-add-btn" onClick={openAddPlan}><Plus size={14} /> Add Plan</button>
           </div>
@@ -426,7 +533,7 @@ Respond ONLY with a valid JSON array:
                       : <span className="rev-chip neutral">Base rate</span>
                     }
                     {plan.days_of_week?.length > 0 && <span className="rev-chip neutral">{plan.days_of_week.map(d => DAYS[d]).join(', ')}</span>}
-                    {plan.min_occupancy_trigger && <span className="rev-chip neutral"><Zap size={10} /> at {plan.min_occupancy_trigger}% occupancy</span>}
+                    {plan.min_occupancy_trigger && <span className="rev-chip neutral"><Zap size={10} /> at {plan.min_occupancy_trigger}%</span>}
                   </div>
                 </div>
                 <div className="rev-plan-rate">
@@ -446,22 +553,22 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* ── SMART RULES ── */}
+      {/* SMART RULES */}
       {activeTab === 'rules' && (
         <div>
           <div className="rev-section-header">
             <div>
               <h3 className="rev-section-title">Smart Rules</h3>
-              <p className="rev-section-sub">Set once, runs automatically every day. No manual work needed.</p>
+              <p className="rev-section-sub">Set once, runs automatically every day.</p>
             </div>
             <button className="rev-add-btn" onClick={() => { openAddPlan(); setPlanType('smart_rule') }}><Plus size={14} /> Add Rule</button>
           </div>
           <div className="rev-rules-explainer">
             {[
-              { label: 'Every Fri + Sat', result: '+25% Weekend rate', color: '#3b82f6' },
+              { label: 'Every Fri + Sat', result: '+25% Weekend', color: '#3b82f6' },
               { label: 'Occupancy > 80%', result: '+20% High demand', color: '#10b981' },
               { label: 'Book 30+ days ahead', result: '-10% Early bird', color: '#8b5cf6' },
-              { label: 'Room empty 3+ days', result: '-15% Fill rate',  color: '#f59e0b' },
+              { label: 'Room empty 3+ days', result: '-15% Fill rate', color: '#f59e0b' },
             ].map(e => (
               <div key={e.label} className="rev-rule-chip">
                 <p className="rev-rule-if">IF {e.label}</p>
@@ -493,21 +600,59 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* ── ACCEPT MODAL ── */}
-      {acceptingId && (
-        <div className="modal-overlay" onClick={() => setAcceptingId(null)}>
+      {/* ACCEPT / MODIFY MODAL */}
+      {acceptingSuggestion && (
+        <div className="modal-overlay" onClick={() => setAcceptingSuggestion(null)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Accept Recommendation</h3>
-              <button className="modal-close" onClick={() => setAcceptingId(null)}><X size={16} /></button>
+              <h3>{isModifying ? 'Modify & Accept' : 'Accept Recommendation'}</h3>
+              <button className="modal-close" onClick={() => setAcceptingSuggestion(null)}><X size={16} /></button>
             </div>
             <div className="modal-body">
-              <div className="accept-preview">
-                <Check size={16} style={{ color: '#10b981' }} />
-                <p>{suggestions.find(s => s.id === acceptingId)?.recommended_action}</p>
-              </div>
+
+              {!isModifying ? (
+                <div className="accept-preview">
+                  <Check size={16} style={{ color: '#10b981', flexShrink: 0 }} />
+                  <p>{acceptingSuggestion.recommended_action}</p>
+                </div>
+              ) : (
+                <div className="modal-field">
+                  <label>Edit the recommendation to your preference</label>
+                  <textarea
+                    value={modifiedAction}
+                    onChange={e => setModifiedAction(e.target.value)}
+                    rows={4}
+                    style={{ padding: '10px 12px', border: '1px solid var(--slate-200)', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', color: 'var(--slate-800)', outline: 'none', resize: 'vertical' }}
+                  />
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+                    For example, change the discount from 20% to 15%, or adjust the dates to suit your needs.
+                  </p>
+                </div>
+              )}
+
+              {isModifying && (
+                <div className="modal-field">
+                  <label>Quick discount adjustment</label>
+                  <div className="discount-btns">
+                    {[10, 15, 20, 25, 30].map(d => (
+                      <button
+                        key={d}
+                        className="discount-btn"
+                        data-active={customDiscount === d}
+                        onClick={() => {
+                          setCustomDiscount(d)
+                          setModifiedAction(prev => prev.replace(/\d+%\s*(discount|off)/gi, `${d}% discount`))
+                        }}
+                      >
+                        {d}% off
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="modal-field">
-                <label>Run this promotion for how many days?</label>
+                <label>Run for how long?</label>
                 <div className="duration-btns">
                   {[3, 7, 14, 30].map(d => (
                     <button key={d} className="duration-btn" data-active={acceptDuration === d} onClick={() => setAcceptDuration(d)}>
@@ -519,63 +664,89 @@ Respond ONLY with a valid JSON array:
                   Active until {new Date(Date.now() + acceptDuration * 86400000).toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </p>
               </div>
-              <div className="modal-field">
-                <label>Internal note (optional)</label>
-                <input value={acceptNote} onChange={e => setAcceptNote(e.target.value)} placeholder="e.g. Targeting corporate guests" />
-              </div>
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setAcceptingId(null)}>Cancel</button>
-              <button className="modal-save" onClick={() => acceptSuggestion(acceptingId)}>
-                <Check size={13} /> Accept & Activate
+              <button className="modal-cancel" onClick={() => setAcceptingSuggestion(null)}>Cancel</button>
+              <button className="modal-save" onClick={confirmAccept}>
+                <Check size={13} /> {isModifying ? 'Apply & Activate' : 'Accept & Activate'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── PROMOTE MODAL ── */}
+      {/* PROMOTE MODAL */}
       {showPromote && (
         <div className="modal-overlay" onClick={() => setShowPromote(null)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
+          <div className="modal-card wide" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Promote This Offer</h3>
+              <h3>Promote: {showPromote.title}</h3>
               <button className="modal-close" onClick={() => setShowPromote(null)}><X size={16} /></button>
             </div>
             <div className="modal-body">
-              <div className="promote-preview">
-                <p className="promote-title">{showPromote.title}</p>
-                <p className="promote-action">{showPromote.recommended_action}</p>
-                <p className="promote-impact">{showPromote.projected_impact}</p>
+
+              {/* WhatsApp */}
+              <div className="promote-channel-section">
+                <div className="promote-channel-title">
+                  <MessageSquare size={16} style={{ color: '#25D366' }} />
+                  <span>WhatsApp Message</span>
+                  <button className="promote-edit-toggle" onClick={() => setEditingWhatsapp(!editingWhatsapp)}>
+                    <Edit3 size={12} /> {editingWhatsapp ? 'Done editing' : 'Edit message'}
+                  </button>
+                </div>
+                {editingWhatsapp ? (
+                  <textarea
+                    value={whatsappMsg}
+                    onChange={e => setWhatsappMsg(e.target.value)}
+                    rows={8}
+                    className="promote-editor"
+                  />
+                ) : (
+                  <div className="promote-preview-box">
+                    <pre className="promote-pre">{whatsappMsg}</pre>
+                  </div>
+                )}
+                <button className="promote-send-btn whatsapp" onClick={sendWhatsApp}>
+                  <MessageSquare size={14} /> Open in WhatsApp
+                </button>
               </div>
-              <p className="promote-note">Share this offer through your channels to maximise bookings:</p>
-              <div className="promote-channels">
-                <button className="promote-channel-btn whatsapp" onClick={() => generateWhatsApp(showPromote)}>
-                  <MessageSquare size={18} />
-                  <span>WhatsApp</span>
-                  <p>Send to contacts & groups</p>
-                </button>
-                <button className="promote-channel-btn social" onClick={() => generateSocialPost(showPromote)}>
-                  <Share2 size={18} />
-                  <span>Social Media</span>
-                  <p>Copy post for Facebook / Instagram</p>
-                </button>
-                <button className="promote-channel-btn booking" onClick={() => window.open(`/book`, '_blank')}>
-                  <ExternalLink size={18} />
-                  <span>Booking Link</span>
-                  <p>Share direct booking page</p>
+
+              {/* Social */}
+              <div className="promote-channel-section">
+                <div className="promote-channel-title">
+                  <Share2 size={16} style={{ color: '#3b82f6' }} />
+                  <span>Social Media Post</span>
+                  <button className="promote-edit-toggle" onClick={() => setEditingSocial(!editingSocial)}>
+                    <Edit3 size={12} /> {editingSocial ? 'Done editing' : 'Edit post'}
+                  </button>
+                </div>
+                {editingSocial ? (
+                  <textarea
+                    value={socialMsg}
+                    onChange={e => setSocialMsg(e.target.value)}
+                    rows={8}
+                    className="promote-editor"
+                  />
+                ) : (
+                  <div className="promote-preview-box">
+                    <pre className="promote-pre">{socialMsg}</pre>
+                  </div>
+                )}
+                <button className="promote-send-btn social" onClick={copySocial}>
+                  {copied ? <><Check size={14} /> Copied!</> : <><Share2 size={14} /> Copy for Facebook / Instagram</>}
                 </button>
               </div>
+
               <div className="promote-info">
-                <AlertCircle size={13} />
-                <p>Full social media scheduling, banner generation, and ad creation are coming in the next update.</p>
+                <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                <p>Banner generation and scheduled posting coming soon. Edit the messages above before sending to match your hotel&apos;s voice.</p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── RATE PLAN MODAL ── */}
+      {/* RATE PLAN MODAL */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -615,9 +786,7 @@ Respond ONLY with a valid JSON array:
                     <input type="number" value={adjValue} onChange={e => setAdjValue(Number(e.target.value))} style={{ flex: 1 }} />
                     <span className="adj-unit">{adjType === 'percentage' ? '%' : hotel?.currency}</span>
                   </div>
-                  <p className="adj-hint">
-                    Preview: ₦75,000 base → {formatCurrency(adjustedRate(75000, adjType, adjValue))}
-                  </p>
+                  <p className="adj-hint">Preview: ₦75,000 → {formatCurrency(adjustedRate(75000, adjType, adjValue))}</p>
                 </div>
               </div>
               {(planType === 'weekend' || planType === 'smart_rule') && (
@@ -659,8 +828,6 @@ Respond ONLY with a valid JSON array:
 
       <style>{`
         .rev-root { max-width: 900px; margin: 0 auto; }
-
-        /* Header */
         .rev-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
         .rev-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .rev-sub { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
@@ -670,44 +837,54 @@ Respond ONLY with a valid JSON array:
         @keyframes rev-spin { to { transform: rotate(360deg); } }
         .rev-spin { animation: rev-spin 1s linear infinite; }
 
-        /* KPIs */
         .rev-kpis { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
         @media (max-width: 640px) { .rev-kpis { grid-template-columns: repeat(2,1fr); } }
-        .rev-kpi { background: white; border: 1px solid var(--slate-200); border-radius: 12px; padding: 16px; text-align: center; transition: border-color 0.15s; }
-        .rev-kpi[data-highlight="true"] { border-color: var(--gold-400); background: var(--gold-100); }
+        .rev-kpi { background: white; border: 1px solid var(--slate-200); border-radius: 12px; padding: 16px; text-align: center; transition: all 0.15s; }
         .rev-kpi-value { font-size: 20px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .rev-kpi-label { font-size: 11px; color: var(--text-muted); margin: 4px 0 0; }
 
-        /* Tabs */
         .rev-tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--slate-100); border-radius: 10px; padding: 4px; }
         .rev-tab { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; cursor: pointer; color: var(--slate-500); background: transparent; transition: all 0.12s; }
         .rev-tab[data-active="true"] { background: white; color: var(--slate-800); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
         .rev-tab-badge { background: var(--gold-500); color: white; font-size: 10px; font-weight: 700; border-radius: 20px; padding: 1px 6px; }
 
-        /* Suggestion cards */
+        /* Filter row */
+        .rev-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .rev-filter-btn { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; transition: all 0.12s; }
+        .rev-filter-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
+
+        /* Date groups */
+        .rev-date-group { margin-bottom: 24px; }
+        .rev-date-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--slate-200); }
+        .rev-date-label span:first-child { font-size: 13px; font-weight: 700; color: var(--slate-600); }
+        .rev-date-count { font-size: 11px; color: var(--text-muted); }
+
+        /* Cards */
         .rev-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px; text-align: center; }
         .rev-empty h3 { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .rev-empty p { font-size: 14px; color: var(--text-muted); max-width: 400px; margin: 0; line-height: 1.6; }
-        .rev-suggestions { display: flex; flex-direction: column; gap: 14px; }
-        .rev-card { background: white; border: 1px solid var(--slate-200); border-radius: 14px; padding: 20px; transition: all 0.15s; }
+        .rev-suggestions { display: flex; flex-direction: column; gap: 12px; }
+        .rev-card { background: white; border: 1px solid var(--slate-200); border-radius: 14px; padding: 18px 20px; transition: all 0.15s; }
         .rev-card[data-status="accepted"] { border-color: #6ee7b7; background: #f0fdf4; }
-        .rev-card[data-status="dismissed"] { opacity: 0.45; }
-        .rev-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .rev-card[data-status="dismissed"] { opacity: 0.4; }
+        .rev-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .rev-card-num { font-size: 11px; font-weight: 800; color: var(--slate-400); background: var(--slate-100); padding: 2px 8px; border-radius: 20px; }
         .rev-type-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--navy-800); background: var(--gold-100); border: 1px solid var(--gold-300); padding: 3px 10px; border-radius: 20px; }
-        .rev-card-date { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+        .rev-card-time { font-size: 11px; color: var(--text-muted); margin-left: auto; }
         .rev-status-chip { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; }
         .rev-status-chip[data-status="accepted"] { background: #d1fae5; color: #065f46; }
         .rev-status-chip[data-status="dismissed"] { background: var(--slate-200); color: var(--slate-500); }
-        .rev-card-title { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--slate-800); margin: 0 0 6px; }
+        .rev-card-title { font-family: 'Playfair Display', serif; font-size: 17px; font-weight: 700; color: var(--slate-800); margin: 0 0 6px; }
         .rev-card-reasoning { font-size: 13px; color: var(--slate-600); margin: 0 0 12px; line-height: 1.6; }
         .rev-card-action { display: flex; align-items: flex-start; gap: 8px; background: var(--gold-100); border: 1px solid var(--gold-300); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; color: var(--navy-800); font-weight: 500; }
         .rev-card-action p { margin: 0; line-height: 1.5; }
         .rev-card-impact { display: flex; align-items: center; gap: 8px; background: #d1fae5; border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; font-size: 13px; color: #065f46; font-weight: 600; }
         .rev-card-impact p { margin: 0; }
-        .rev-card-footer { display: flex; gap: 8px; }
-        .rev-accept-btn { display: flex; align-items: center; gap: 6px; padding: 9px 20px; background: var(--navy-800); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
-        .rev-dismiss-btn { display: flex; align-items: center; gap: 6px; padding: 9px 16px; background: white; color: var(--slate-500); font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); border-radius: 8px; cursor: pointer; }
-        .rev-promote-btn { display: flex; align-items: center; gap: 6px; padding: 9px 20px; background: linear-gradient(135deg, var(--gold-500), #b8922e); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
+        .rev-card-footer { display: flex; gap: 8px; flex-wrap: wrap; }
+        .rev-accept-btn { display: flex; align-items: center; gap: 6px; padding: 8px 18px; background: var(--navy-800); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
+        .rev-modify-btn { display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: white; color: var(--navy-800); font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid var(--navy-600); border-radius: 8px; cursor: pointer; }
+        .rev-dismiss-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: white; color: var(--slate-500); font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); border-radius: 8px; cursor: pointer; }
+        .rev-promote-btn { display: flex; align-items: center; gap: 6px; padding: 8px 18px; background: linear-gradient(135deg, var(--gold-500), #b8922e); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
 
         /* Rate plans */
         .rev-section-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; gap: 16px; flex-wrap: wrap; }
@@ -715,7 +892,7 @@ Respond ONLY with a valid JSON array:
         .rev-section-sub { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
         .rev-add-btn { display: flex; align-items: center; gap: 6px; padding: 9px 16px; background: var(--navy-800); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
         .rev-plans-list { display: flex; flex-direction: column; gap: 8px; }
-        .rev-plan-row { background: white; border: 1px solid var(--slate-200); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; transition: opacity 0.15s; }
+        .rev-plan-row { background: white; border: 1px solid var(--slate-200); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; }
         .rev-plan-row[data-active="false"] { opacity: 0.5; }
         .rev-plan-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--slate-300); }
         .rev-plan-dot[data-active="true"] { background: #10b981; }
@@ -733,13 +910,12 @@ Respond ONLY with a valid JSON array:
         .rev-rate-value { font-size: 14px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .rev-rate-base { font-size: 10px; color: var(--text-muted); margin: 2px 0 0; }
         .rev-plan-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-        .rev-toggle { padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; font-family: 'DM Sans', sans-serif; cursor: pointer; border: 1.5px solid var(--slate-200); background: white; color: var(--slate-400); transition: all 0.12s; }
+        .rev-toggle { padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; font-family: 'DM Sans', sans-serif; cursor: pointer; border: 1.5px solid var(--slate-200); background: white; color: var(--slate-400); }
         .rev-toggle[data-active="true"] { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
-        .rev-icon-btn { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--slate-200); background: white; color: var(--slate-400); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.12s; }
-        .rev-icon-btn:hover { background: var(--slate-100); color: var(--slate-700); }
+        .rev-icon-btn { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--slate-200); background: white; color: var(--slate-400); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .rev-icon-btn:hover { background: var(--slate-100); }
         .rev-icon-btn.danger:hover { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
 
-        /* Smart rules explainer */
         .rev-rules-explainer { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 20px; }
         @media (max-width: 640px) { .rev-rules-explainer { grid-template-columns: repeat(2,1fr); } }
         .rev-rule-chip { background: linear-gradient(135deg, var(--navy-900), var(--navy-700)); border-radius: 10px; padding: 14px; }
@@ -747,26 +923,30 @@ Respond ONLY with a valid JSON array:
         .rev-rule-then { font-size: 13px; font-weight: 700; margin: 0; }
 
         /* Accept modal */
-        .accept-preview { display: flex; align-items: flex-start; gap: 10px; background: #d1fae5; border-radius: 10px; padding: 12px; margin-bottom: 4px; font-size: 13px; color: #065f46; font-weight: 500; }
+        .accept-preview { display: flex; align-items: flex-start; gap: 10px; background: #d1fae5; border-radius: 10px; padding: 12px; font-size: 13px; color: #065f46; font-weight: 500; }
         .accept-preview p { margin: 0; line-height: 1.5; }
+        .discount-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+        .discount-btn { padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; }
+        .discount-btn[data-active="true"] { border-color: var(--gold-500); background: var(--gold-100); color: var(--navy-800); }
         .duration-btns { display: flex; gap: 8px; }
         .duration-btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; }
         .duration-btn[data-active="true"] { border-color: var(--navy-800); background: var(--navy-800); color: white; }
         .duration-note { font-size: 12px; color: var(--text-muted); margin: 6px 0 0; }
 
         /* Promote modal */
-        .promote-preview { background: var(--gold-100); border: 1px solid var(--gold-300); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-        .promote-title { font-family: 'Playfair Display', serif; font-size: 16px; font-weight: 700; color: var(--slate-800); margin: 0 0 6px; }
-        .promote-action { font-size: 13px; color: var(--slate-600); margin: 0 0 8px; line-height: 1.5; }
-        .promote-impact { font-size: 13px; font-weight: 700; color: #065f46; margin: 0; }
-        .promote-note { font-size: 13px; color: var(--slate-600); margin: 0 0 16px; }
-        .promote-channels { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 16px; }
-        .promote-channel-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px; border-radius: 12px; border: 1.5px solid var(--slate-200); background: white; cursor: pointer; text-align: center; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
-        .promote-channel-btn:hover { border-color: var(--navy-600); background: var(--slate-100); }
-        .promote-channel-btn.whatsapp:hover { border-color: #25D366; background: #f0fdf4; }
-        .promote-channel-btn span { font-size: 13px; font-weight: 700; color: var(--slate-800); }
-        .promote-channel-btn p { font-size: 11px; color: var(--text-muted); margin: 0; }
-        .promote-info { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-muted); background: var(--slate-100); border-radius: 8px; padding: 10px 12px; }
+        .modal-card.wide { max-width: 600px; }
+        .promote-channel-section { display: flex; flex-direction: column; gap: 10px; padding: 16px; background: var(--slate-100); border-radius: 12px; }
+        .promote-channel-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--slate-800); }
+        .promote-channel-title span { flex: 1; }
+        .promote-edit-toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--navy-600); background: none; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; padding: 0; }
+        .promote-preview-box { background: white; border-radius: 8px; padding: 12px; border: 1px solid var(--slate-200); }
+        .promote-pre { font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--slate-700); margin: 0; white-space: pre-wrap; line-height: 1.6; }
+        .promote-editor { width: 100%; padding: 10px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 13px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; resize: vertical; background: white; }
+        .promote-send-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; font-family: 'DM Sans', sans-serif; border: none; cursor: pointer; transition: opacity 0.15s; }
+        .promote-send-btn.whatsapp { background: #25D366; color: white; }
+        .promote-send-btn.social { background: var(--navy-800); color: white; }
+        .promote-send-btn:hover { opacity: 0.85; }
+        .promote-info { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-muted); }
         .promote-info p { margin: 0; line-height: 1.5; }
 
         /* Modal shared */
@@ -775,7 +955,7 @@ Respond ONLY with a valid JSON array:
         .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--slate-200); }
         .modal-header h3 { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .modal-close { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--slate-200); background: white; color: var(--slate-400); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; max-height: 65vh; overflow-y: auto; }
+        .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; max-height: 70vh; overflow-y: auto; }
         .modal-field { display: flex; flex-direction: column; gap: 6px; }
         .modal-field label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--slate-500); }
         .modal-field input { padding: 10px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; }
@@ -785,10 +965,8 @@ Respond ONLY with a valid JSON array:
         .modal-cancel { padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
         .modal-save { display: flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; background: var(--navy-800); color: white; border: none; cursor: pointer; }
         .modal-save:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        /* Plan type grid */
         .plan-type-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; }
-        .plan-type-option { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 10px; border: 1.5px solid var(--slate-200); background: white; cursor: pointer; text-align: left; transition: all 0.12s; }
+        .plan-type-option { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 10px; border: 1.5px solid var(--slate-200); background: white; cursor: pointer; text-align: left; }
         .plan-type-option[data-active="true"] { border-color: var(--gold-500); background: var(--gold-100); }
         .plan-type-label { font-size: 13px; font-weight: 700; color: var(--slate-800); }
         .plan-type-desc { font-size: 11px; color: var(--text-muted); }
@@ -800,7 +978,7 @@ Respond ONLY with a valid JSON array:
         .adj-unit { font-size: 14px; font-weight: 700; color: var(--slate-500); }
         .adj-hint { font-size: 12px; color: var(--text-muted); margin: 0; }
         .days-row { display: flex; gap: 6px; flex-wrap: wrap; }
-        .day-btn { width: 44px; height: 36px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; transition: all 0.12s; }
+        .day-btn { width: 44px; height: 36px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; }
         .day-btn[data-active="true"] { border-color: var(--navy-800); background: var(--navy-800); color: white; }
       `}</style>
     </div>

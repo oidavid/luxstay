@@ -19,6 +19,9 @@ const pageTitles: Record<string, string> = {
   '/hr':           'Staff & HR',
   '/billing':      'Billing',
   '/settings':     'Settings',
+  '/rooms/setup':        'Room Setup',
+  '/rooms/floor-builder':'Floor Builder',
+  '/rooms/new':          'Add Room',
 }
 
 export function TopBar() {
@@ -143,4 +146,5 @@ export function TopBar() {
     </header>
   )
 }
+
 

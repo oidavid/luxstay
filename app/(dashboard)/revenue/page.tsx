@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -151,7 +151,7 @@ Respond ONLY with a valid JSON array:
     "title": "Short title (max 8 words)",
     "reasoning": "2-3 sentences explaining WHY based on exact data above",
     "recommended_action": "Exactly what to do with specific rates and dates",
-    "projected_impact": "Specific projected impact e.g. +â‚¦450,000 this weekend"
+    "projected_impact": "Specific projected impact e.g. +₦450,000 this weekend"
   }
 ]`
 
@@ -200,9 +200,13 @@ Respond ONLY with a valid JSON array:
     setSuggestions(prev => prev.map(s => s.id === id ? { ...s, status: 'dismissed' } : s))
   }
 
-  REPLACEME
+  function generateWhatsApp(s: AISuggestion) {
+    const text = `🏨 *${hotel?.name} — Special Offer*\n\n✨ ${s.title}\n\n${s.recommended_action}\n\n📈 ${s.projected_impact}\n\nBook now: https://luxstay-nu.vercel.app/book`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  }
+
   function generateSocialPost(s: AISuggestion) {
-    const text = `ðŸŒŸ Special offer at ${hotel?.name}!\n\n${s.title}\n\n${s.recommended_action}\n\n${s.projected_impact}\n\nBook directly and save! Link in bio. #${hotel?.name?.replace(/\s/g, '')} #HotelDeals #Nigeria`
+    const text = `🌟 Special offer at ${hotel?.name}!\n\n${s.title}\n\n${s.recommended_action}\n\n${s.projected_impact}\n\nBook directly and save! Link in bio. #${hotel?.name?.replace(/\s/g, '')} #HotelDeals #Nigeria`
     navigator.clipboard.writeText(text)
     alert('Social media post copied to clipboard!')
   }
@@ -272,7 +276,7 @@ Respond ONLY with a valid JSON array:
   return (
     <div className="rev-root">
 
-      {/* â”€â”€ Clean Header â”€â”€ */}
+      {/* ── Clean Header ── */}
       <div className="rev-header">
         <div>
           <h2 className="rev-title">Revenue Intelligence</h2>
@@ -293,7 +297,7 @@ Respond ONLY with a valid JSON array:
         </button>
       </div>
 
-      {/* â”€â”€ KPI Strip â”€â”€ */}
+      {/* ── KPI Strip ── */}
       <div className="rev-kpis">
         <div className="rev-kpi">
           <p className="rev-kpi-value">{activePlans.length}</p>
@@ -313,7 +317,7 @@ Respond ONLY with a valid JSON array:
         </div>
       </div>
 
-      {/* â”€â”€ Tabs â”€â”€ */}
+      {/* ── Tabs ── */}
       <div className="rev-tabs">
         {[
           { key: 'advisor', label: 'AI Advisor',  icon: Brain,       badge: pendingCount },
@@ -328,7 +332,7 @@ Respond ONLY with a valid JSON array:
         ))}
       </div>
 
-      {/* â”€â”€ AI ADVISOR â”€â”€ */}
+      {/* ── AI ADVISOR ── */}
       {activeTab === 'advisor' && (
         <div>
           {suggestions.length === 0 ? (
@@ -394,7 +398,7 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* â”€â”€ RATE PLANS â”€â”€ */}
+      {/* ── RATE PLANS ── */}
       {activeTab === 'plans' && (
         <div>
           <div className="rev-section-header">
@@ -427,7 +431,7 @@ Respond ONLY with a valid JSON array:
                 </div>
                 <div className="rev-plan-rate">
                   <p className="rev-rate-value">{formatCurrency(adjustedRate(BASE_RATE, plan.adjustment_type, plan.adjustment_value))}</p>
-                  <p className="rev-rate-base">on â‚¦75K base</p>
+                  <p className="rev-rate-base">on ₦75K base</p>
                 </div>
                 <div className="rev-plan-actions">
                   <button className="rev-toggle" data-active={plan.is_active} onClick={() => togglePlan(plan.id, plan.is_active)}>
@@ -442,7 +446,7 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* â”€â”€ SMART RULES â”€â”€ */}
+      {/* ── SMART RULES ── */}
       {activeTab === 'rules' && (
         <div>
           <div className="rev-section-header">
@@ -461,7 +465,7 @@ Respond ONLY with a valid JSON array:
             ].map(e => (
               <div key={e.label} className="rev-rule-chip">
                 <p className="rev-rule-if">IF {e.label}</p>
-                <p className="rev-rule-then" style={{ color: e.color }}>â†’ {e.result}</p>
+                <p className="rev-rule-then" style={{ color: e.color }}>→ {e.result}</p>
               </div>
             ))}
           </div>
@@ -489,7 +493,7 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* â”€â”€ ACCEPT MODAL â”€â”€ */}
+      {/* ── ACCEPT MODAL ── */}
       {acceptingId && (
         <div className="modal-overlay" onClick={() => setAcceptingId(null)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -530,7 +534,7 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* â”€â”€ PROMOTE MODAL â”€â”€ */}
+      {/* ── PROMOTE MODAL ── */}
       {showPromote && (
         <div className="modal-overlay" onClick={() => setShowPromote(null)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -571,7 +575,7 @@ Respond ONLY with a valid JSON array:
         </div>
       )}
 
-      {/* â”€â”€ RATE PLAN MODAL â”€â”€ */}
+      {/* ── RATE PLAN MODAL ── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -612,7 +616,7 @@ Respond ONLY with a valid JSON array:
                     <span className="adj-unit">{adjType === 'percentage' ? '%' : hotel?.currency}</span>
                   </div>
                   <p className="adj-hint">
-                    Preview: â‚¦75,000 base â†’ {formatCurrency(adjustedRate(75000, adjType, adjValue))}
+                    Preview: ₦75,000 base → {formatCurrency(adjustedRate(75000, adjType, adjValue))}
                   </p>
                 </div>
               </div>
@@ -802,4 +806,3 @@ Respond ONLY with a valid JSON array:
     </div>
   )
 }
-

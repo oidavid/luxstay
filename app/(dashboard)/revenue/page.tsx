@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -139,7 +139,7 @@ export default function RevenuePage() {
     setGeneratingAI(true)
 
     const today = new Date().toISOString().split('T')[0]
-    // Only clear today's pending â€” keep history
+    // Only clear today's pending — keep history
     await supabase.from('ai_revenue_suggestions')
       .delete()
       .eq('hotel_id', hotel.id)
@@ -234,36 +234,34 @@ Respond ONLY with valid JSON array:
   }
 
   function openPromote(s: AISuggestion) {
-    // Always use the most current version of the action text
-    const actionText = s.recommended_action
-    const lines = actionText
+    const lines = s.recommended_action
       .split(/[.!]/)
       .filter(l => l.trim().length > 10)
       .slice(0, 3)
-      .map(l => `â€¢ ${l.trim()}`)
+      .map(l => `• ${l.trim()}`)
       .join('\n')
 
     const wa = [
-      `ðŸ¨ *${hotel?.name}*`,
+      `🏨 *${hotel?.name}*`,
       ``,
       `*${s.title}*`,
       ``,
       lines,
       ``,
-      `ðŸ“ž ${hotel?.phone ?? 'Call us to book'}`,
-      `ðŸ”— Book direct: https://luxstay-nu.vercel.app/book`,
+      `📞 ${hotel?.phone ?? 'Call us to book'}`,
+      `🔗 Book direct: https://luxstay-nu.vercel.app/book`,
       ``,
       `_Limited time offer. Terms apply._`
     ].join('\n')
 
     const social = [
-      `ðŸŒŸ Special offer at ${hotel?.name}!`,
+      `🌟 Special offer at ${hotel?.name}!`,
       ``,
       `${s.title}`,
       ``,
       lines,
       ``,
-      `Book direct for the best rate guaranteed ðŸ‘†`,
+      `Book direct for the best rate guaranteed 👆`,
       ``,
       `#${hotel?.name?.replace(/\s/g, '') ?? 'Hotel'} #HotelDeals #Nigeria #Travel #Hospitality`
     ].join('\n')
@@ -367,7 +365,7 @@ Respond ONLY with valid JSON array:
             {pendingCount > 0
               ? `${pendingCount} recommendation${pendingCount > 1 ? 's' : ''} waiting for your review`
               : acceptedCount > 0
-              ? `${acceptedCount} accepted today Â· ${activePlans.length} rate plans active`
+              ? `${acceptedCount} accepted today · ${activePlans.length} rate plans active`
               : 'Generate AI recommendations based on your live occupancy'
             }
           </p>
@@ -540,7 +538,7 @@ Respond ONLY with valid JSON array:
                 </div>
                 <div className="rev-plan-rate">
                   <p className="rev-rate-value">{formatCurrency(adjustedRate(BASE_RATE, plan.adjustment_type, plan.adjustment_value))}</p>
-                  <p className="rev-rate-base">on â‚¦75K base</p>
+                  <p className="rev-rate-base">on ₦75K base</p>
                 </div>
                 <div className="rev-plan-actions">
                   <button className="rev-toggle" data-active={plan.is_active} onClick={() => togglePlan(plan.id, plan.is_active)}>
@@ -574,7 +572,7 @@ Respond ONLY with valid JSON array:
             ].map(e => (
               <div key={e.label} className="rev-rule-chip">
                 <p className="rev-rule-if">IF {e.label}</p>
-                <p className="rev-rule-then" style={{ color: e.color }}>â†’ {e.result}</p>
+                <p className="rev-rule-then" style={{ color: e.color }}>→ {e.result}</p>
               </div>
             ))}
           </div>
@@ -788,7 +786,7 @@ Respond ONLY with valid JSON array:
                     <input type="number" value={adjValue} onChange={e => setAdjValue(Number(e.target.value))} style={{ flex: 1 }} />
                     <span className="adj-unit">{adjType === 'percentage' ? '%' : hotel?.currency}</span>
                   </div>
-                  <p className="adj-hint">Preview: â‚¦75,000 â†’ {formatCurrency(adjustedRate(75000, adjType, adjValue))}</p>
+                  <p className="adj-hint">Preview: ₦75,000 → {formatCurrency(adjustedRate(75000, adjType, adjValue))}</p>
                 </div>
               </div>
               {(planType === 'weekend' || planType === 'smart_rule') && (
@@ -986,4 +984,3 @@ Respond ONLY with valid JSON array:
     </div>
   )
 }
-

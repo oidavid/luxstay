@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { Bell, Plus } from 'lucide-react'
 import { usePathname } from 'next/navigation'
@@ -7,28 +7,29 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
 const pageTitles: Record<string, string> = {
-  '/overview':     'Overview',
-  '/rooms':        'Room Management',
-  '/reservations': 'Reservations',
-  '/guests':       'Guest Profiles',
-  '/pos':          'Restaurant & Bar',
-  '/housekeeping': 'Housekeeping',
-  '/maintenance':  'Maintenance',
-  '/crm':          'Guest Messages',
-  '/reports':      'Reports & Analytics',
-  '/hr':           'Staff & HR',
-  '/billing':      'Billing',
-  '/settings':          'Settings',
-  '/revenue':            'Revenue Intelligence',
-  '/rooms/setup':        'Room Setup',
-  '/rooms/floor-builder':'Floor Builder',
+  '/overview':             'Overview',
+  '/rooms':                'Room Management',
+  '/rooms/setup':          'Room Setup',
+  '/rooms/floor-builder':  'Floor Builder',
+  '/reservations':         'Reservations',
+  '/reservations/new':     'New Reservation',
+  '/guests':               'Guest Profiles',
+  '/pos':                  'Restaurant & Bar',
+  '/housekeeping':         'Housekeeping',
+  '/maintenance':          'Maintenance',
+  '/crm':                  'Guest Messages',
+  '/revenue':              'Revenue Intelligence',
+  '/reports':              'Reports & Analytics',
+  '/hr':                   'Staff & HR',
+  '/billing':              'Billing',
+  '/settings':             'Settings',
 }
 
 export function TopBar() {
-  const pathname = usePathname()
-  const supabase = createClient()
-  const title    = pageTitles[pathname] ?? 'LuxStay'
-  const today    = new Date().toLocaleDateString('en-US', {
+  const pathname  = usePathname()
+  const supabase  = createClient()
+  const title     = pageTitles[pathname] ?? 'LuxStay'
+  const today     = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   })
 
@@ -56,13 +57,11 @@ export function TopBar() {
 
   return (
     <header className="lux-topbar">
-      {/* Left */}
       <div className="lux-topbar-left">
         <h1 className="lux-topbar-title font-display">{title}</h1>
         <p className="lux-topbar-date">{today}</p>
       </div>
 
-      {/* Right */}
       <div className="lux-topbar-right">
         <Link href="/reservations/new" className="lux-topbar-new-btn">
           <Plus size={15} />
@@ -89,33 +88,23 @@ export function TopBar() {
           position: sticky; top: 0; z-index: 10;
         }
         @media (max-width: 768px) { .lux-topbar { padding: 0 16px; height: 56px; } }
-
         .lux-topbar-left { display: flex; flex-direction: column; gap: 1px; }
-        .lux-topbar-title {
-          font-size: 18px; font-weight: 600;
-          color: var(--slate-800); margin: 0; line-height: 1.2;
-        }
+        .lux-topbar-title { font-size: 18px; font-weight: 600; color: var(--slate-800); margin: 0; line-height: 1.2; }
         @media (max-width: 768px) { .lux-topbar-title { font-size: 16px; } }
-        .lux-topbar-date { font-size: 11px; color: var(--slate-600); margin: 0; font-weight: 500; }
+        .lux-topbar-date { font-size: 11px; color: var(--slate-600); font-weight: 500; margin: 0; }
         @media (max-width: 480px) { .lux-topbar-date { display: none; } }
-
         .lux-topbar-right { display: flex; align-items: center; gap: 10px; }
-
         .lux-topbar-new-btn {
           display: flex; align-items: center; gap: 6px;
-          padding: 8px 16px;
-          background: var(--navy-800); color: white;
-          font-size: 13px; font-weight: 600;
-          font-family: 'DM Sans', sans-serif;
-          border-radius: 8px; text-decoration: none;
-          transition: opacity 0.15s; white-space: nowrap;
+          padding: 8px 16px; background: var(--navy-800); color: white;
+          font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+          border-radius: 8px; text-decoration: none; transition: opacity 0.15s; white-space: nowrap;
         }
         .lux-topbar-new-btn:hover { opacity: 0.85; }
         @media (max-width: 480px) {
           .lux-topbar-new-label { display: none; }
           .lux-topbar-new-btn { padding: 8px 10px; }
         }
-
         .lux-topbar-bell {
           position: relative; width: 38px; height: 38px;
           display: flex; align-items: center; justify-content: center;
@@ -126,27 +115,18 @@ export function TopBar() {
         .lux-topbar-bell:hover { background: var(--slate-200); }
         .lux-topbar-bell-dot {
           position: absolute; top: 8px; right: 8px;
-          width: 7px; height: 7px;
-          background: var(--gold-500); border-radius: 50%;
-          border: 1.5px solid white;
+          width: 7px; height: 7px; background: var(--gold-500);
+          border-radius: 50%; border: 1.5px solid white;
         }
-
         .lux-topbar-avatar {
           width: 36px; height: 36px; border-radius: 10px;
           background: linear-gradient(135deg, var(--navy-800), var(--navy-600));
-          border: 2px solid var(--gold-500);
-          color: var(--gold-300);
+          border: 2px solid var(--gold-500); color: var(--gold-300);
           font-size: 12px; font-weight: 700;
           display: flex; align-items: center; justify-content: center;
           flex-shrink: 0; cursor: pointer;
-          transition: border-color 0.15s;
         }
-        .lux-topbar-avatar:hover { border-color: var(--gold-400); }
       `}</style>
     </header>
   )
 }
-
-
-
-

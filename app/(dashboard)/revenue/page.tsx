@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -151,8 +151,8 @@ Respond ONLY with a valid JSON array, no other text, no markdown:
     "suggestion_type": "rate_adjustment",
     "title": "Short punchy title (max 8 words)",
     "reasoning": "2-3 sentences explaining WHY based on the data above. Be specific about the numbers.",
-    "recommended_action": "Exactly what to do — specific rate, specific days, specific amount",
-    "projected_impact": "Specific projected revenue impact with numbers e.g. +₦450,000 this weekend"
+    "recommended_action": "Exactly what to do â€” specific rate, specific days, specific amount",
+    "projected_impact": "Specific projected revenue impact with numbers e.g. +â‚¦450,000 this weekend"
   }
 ]
 
@@ -321,7 +321,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
         ))}
       </div>
 
-      {/* ── AI ADVISOR TAB ── */}
+      {/* â”€â”€ AI ADVISOR TAB â”€â”€ */}
       {activeTab === 'advisor' && (
         <div className="rev-section">
           {suggestions.length === 0 ? (
@@ -392,7 +392,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
         </div>
       )}
 
-      {/* ── RATE PLANS TAB ── */}
+      {/* â”€â”€ RATE PLANS TAB â”€â”€ */}
       {activeTab === 'plans' && (
         <div className="rev-section">
           <div className="rev-section-header">
@@ -446,7 +446,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
                         )}
                         {plan.date_from && plan.date_to && (
                           <span className="rev-plan-chip neutral">
-                            {new Date(plan.date_from).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })} → {new Date(plan.date_to).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}
+                            {new Date(plan.date_from).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })} â†’ {new Date(plan.date_to).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}
                           </span>
                         )}
                         {plan.min_occupancy_trigger && (
@@ -460,7 +460,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
                   <div className="rev-plan-right">
                     <div className="rev-plan-rate-preview">
                       <p className="rev-plan-rate">{formatCurrency(preview, hotel?.currency)}</p>
-                      <p className="rev-plan-rate-label">on ₦75K base</p>
+                      <p className="rev-plan-rate-label">on â‚¦75K base</p>
                     </div>
                     <div className="rev-plan-actions">
                       <button
@@ -486,13 +486,13 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
         </div>
       )}
 
-      {/* ── SMART RULES TAB ── */}
+      {/* â”€â”€ SMART RULES TAB â”€â”€ */}
       {activeTab === 'rules' && (
         <div className="rev-section">
           <div className="rev-section-header">
             <div>
               <h3 className="rev-section-title">Smart Rules</h3>
-              <p className="rev-section-sub">Set rules once and LuxStay automatically applies the right rate every day — no manual work needed.</p>
+              <p className="rev-section-sub">Set rules once and LuxStay automatically applies the right rate every day â€” no manual work needed.</p>
             </div>
             <button className="rev-add-btn" onClick={() => { openAddPlan(); setPlanType('smart_rule') }}>
               <Plus size={14} /> Add Smart Rule
@@ -561,7 +561,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
         </div>
       )}
 
-      {/* ── MODAL ── */}
+      {/* â”€â”€ MODAL â”€â”€ */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -628,16 +628,16 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
                   </div>
                   <p className="adj-hint">
                     {adjValue > 0
-                      ? `Positive = markup. ₦75,000 base → ${formatCurrency(adjustedRate(75000, { adjustment_type: adjType, adjustment_value: adjValue } as RatePlan))}`
+                      ? `Positive = markup. â‚¦75,000 base â†’ ${formatCurrency(adjustedRate(75000, { adjustment_type: adjType, adjustment_value: adjValue } as RatePlan))}`
                       : adjValue < 0
-                      ? `Negative = discount. ₦75,000 base → ${formatCurrency(adjustedRate(75000, { adjustment_type: adjType, adjustment_value: adjValue } as RatePlan))}`
+                      ? `Negative = discount. â‚¦75,000 base â†’ ${formatCurrency(adjustedRate(75000, { adjustment_type: adjType, adjustment_value: adjValue } as RatePlan))}`
                       : 'Enter a positive number for markup, negative for discount'
                     }
                   </p>
                 </div>
               </div>
 
-              {/* Days of week — for weekend/smart rules */}
+              {/* Days of week â€” for weekend/smart rules */}
               {(planType === 'weekend' || planType === 'smart_rule') && (
                 <div className="modal-field">
                   <label>Apply on days</label>
@@ -656,7 +656,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
                 </div>
               )}
 
-              {/* Date range — for seasonal */}
+              {/* Date range â€” for seasonal */}
               {planType === 'seasonal' && (
                 <div className="modal-row2">
                   <div className="modal-field">
@@ -670,7 +670,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
                 </div>
               )}
 
-              {/* Occupancy trigger — for smart rules */}
+              {/* Occupancy trigger â€” for smart rules */}
               {planType === 'smart_rule' && (
                 <div className="modal-field">
                   <label>Activate when occupancy exceeds (%)</label>
@@ -678,7 +678,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
                     type="number" min={0} max={100}
                     value={minOccupancy}
                     onChange={e => setMinOccupancy(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="e.g. 80 — activates when hotel is 80%+ full"
+                    placeholder="e.g. 80 â€” activates when hotel is 80%+ full"
                   />
                 </div>
               )}
@@ -698,7 +698,7 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
         .rev-root { max-width: 1000px; margin: 0 auto; }
 
         .rev-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
-        .rev-header-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gold-500); margin-bottom: 6px; }
+        .rev-header-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--navy-800); background: var(--gold-100); border: 1.5px solid var(--gold-400); padding: 4px 10px; border-radius: 20px; margin-bottom: 10px; }
         .rev-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .rev-sub { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
 
@@ -882,3 +882,4 @@ Focus on: occupancy optimization, weekend pricing, demand forecasting, and reven
     </div>
   )
 }
+

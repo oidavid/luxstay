@@ -18,7 +18,10 @@ const pageTitles: Record<string, string> = {
   '/reports':      'Reports & Analytics',
   '/hr':           'Staff & HR',
   '/billing':      'Billing',
-  '/settings':     'Settings',
+  '/settings':          'Settings',
+  '/revenue':            'Revenue Intelligence',
+  '/rooms/setup':        'Room Setup',
+  '/rooms/floor-builder':'Floor Builder',
   '/rooms/setup':        'Room Setup',
   '/rooms/floor-builder':'Floor Builder',
   '/rooms/new':          'Add Room',
@@ -146,5 +149,6 @@ export function TopBar() {
     </header>
   )
 }
+
 
 

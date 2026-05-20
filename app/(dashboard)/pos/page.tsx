@@ -30,6 +30,18 @@ function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(n)
 }
 
+// Parse a price string that may contain commas e.g. "5,700" → 5700
+function parsePrice(val: string): number {
+  return Number(val.replace(/,/g, '').trim())
+}
+
+// Format a number for display in input field with commas e.g. 5700 → "5,700"
+function displayPrice(val: string): string {
+  const stripped = val.replace(/,/g, '').replace(/[^\d]/g, '')
+  if (!stripped) return ''
+  return Number(stripped).toLocaleString('en-NG')
+}
+
 export default function POSPage() {
   const supabase = createClient()
   const [hotelId, setHotelId] = useState<string | null>(null)
@@ -45,18 +57,16 @@ export default function POSPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  // Item modal state
+  // Item modal
   const [showItemModal, setShowItemModal] = useState(false)
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [itemName, setItemName] = useState('')
   const [itemCategory, setItemCategory] = useState('lunch')
-  const [itemPrice, setItemPrice] = useState<number | ''>('')
+  const [itemPriceStr, setItemPriceStr] = useState('')
   const [itemDesc, setItemDesc] = useState('')
   const [itemRoomService, setItemRoomService] = useState(true)
-  const [itemRoomServicePrice, setItemRoomServicePrice] = useState<number | ''>('')
+  const [itemRoomServicePriceStr, setItemRoomServicePriceStr] = useState('')
   const [savingItem, setSavingItem] = useState(false)
-
-  // Delete confirm
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
@@ -81,8 +91,8 @@ export default function POSPage() {
 
   function openAddItem() {
     setEditingItem(null)
-    setItemName(''); setItemCategory('lunch'); setItemPrice('')
-    setItemDesc(''); setItemRoomService(true); setItemRoomServicePrice('')
+    setItemName(''); setItemCategory('lunch'); setItemPriceStr('')
+    setItemDesc(''); setItemRoomService(true); setItemRoomServicePriceStr('')
     setShowItemModal(true)
   }
 
@@ -90,37 +100,44 @@ export default function POSPage() {
     setEditingItem(item)
     setItemName(item.name)
     setItemCategory(item.category)
-    setItemPrice(item.price)
+    setItemPriceStr(item.price.toLocaleString('en-NG'))
     setItemDesc(item.description ?? '')
     setItemRoomService(item.available_room_service ?? true)
-    setItemRoomServicePrice(item.room_service_price ?? '')
+    setItemRoomServicePriceStr(item.room_service_price ? item.room_service_price.toLocaleString('en-NG') : '')
     setShowItemModal(true)
   }
 
   function closeItemModal() {
     setShowItemModal(false)
     setEditingItem(null)
-    setItemName(''); setItemCategory('lunch'); setItemPrice('')
-    setItemDesc(''); setItemRoomService(true); setItemRoomServicePrice('')
+  }
+
+  function handlePriceInput(val: string, setter: (v: string) => void) {
+    // Allow digits and commas only, auto-format
+    const digits = val.replace(/[^\d]/g, '')
+    if (!digits) { setter(''); return }
+    setter(Number(digits).toLocaleString('en-NG'))
   }
 
   async function saveItem() {
-    if (!hotelId || !itemName || itemPrice === '') return
-    setSavingItem(true)
+    if (!hotelId || !itemName || !itemPriceStr) return
+    const price = parsePrice(itemPriceStr)
+    const rsPrice = itemRoomServicePriceStr ? parsePrice(itemRoomServicePriceStr) : null
+    if (isNaN(price) || price <= 0) return
 
+    setSavingItem(true)
     const payload = {
       hotel_id: hotelId,
       name: itemName,
       category: itemCategory,
-      price: Number(itemPrice),
+      price,
       description: itemDesc || null,
       is_available: true,
       available_room_service: itemRoomService,
-      room_service_price: itemRoomServicePrice !== '' ? Number(itemRoomServicePrice) : null,
+      room_service_price: rsPrice,
     }
 
     if (editingItem) {
-      // UPDATE existing item — never insert
       await supabase.from('menu_items').update({
         name: payload.name,
         category: payload.category,
@@ -130,7 +147,6 @@ export default function POSPage() {
         room_service_price: payload.room_service_price,
       }).eq('id', editingItem.id)
     } else {
-      // INSERT new item
       await supabase.from('menu_items').insert(payload)
     }
 
@@ -214,6 +230,8 @@ export default function POSPage() {
   const itemCount = orderItems.reduce((sum, i) => sum + i.quantity, 0)
   const unavailableCount = menuItems.filter(m => !m.is_available).length
 
+  const priceIsValid = itemPriceStr && parsePrice(itemPriceStr) > 0
+
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading restaurant...</div>
 
   return (
@@ -223,16 +241,11 @@ export default function POSPage() {
           <h2 className="pos-title">Restaurant & Bar</h2>
           <p className="pos-sub">{menuItems.filter(m => m.is_available).length} items available{unavailableCount > 0 ? ` · ${unavailableCount} unavailable` : ''}</p>
         </div>
-        <button className="pos-add-btn" onClick={openAddItem}>
-          <Plus size={14} /> Add Menu Item
-        </button>
+        <button className="pos-add-btn" onClick={openAddItem}><Plus size={14} /> Add Menu Item</button>
       </div>
 
       <div className="pos-body">
-        {/* Menu side */}
         <div className="pos-menu">
-
-          {/* Order type selector */}
           <div className="pos-order-type">
             {(['dine_in', 'room_service', 'bar'] as const).map(t => (
               <button key={t} className="pos-type-btn" data-active={orderType === t} onClick={() => setOrderType(t)}>
@@ -241,7 +254,6 @@ export default function POSPage() {
             ))}
           </div>
 
-          {/* Category + unavailable toggle row */}
           <div className="pos-cat-row">
             <div className="pos-categories">
               {CATEGORIES.map(cat => {
@@ -249,7 +261,7 @@ export default function POSPage() {
                 if (count === 0 && cat !== 'all') return null
                 return (
                   <button key={cat} className="pos-cat-btn" data-active={category === cat} onClick={() => setCategory(cat)}>
-                    {cat} {count > 0 && cat !== 'all' ? `(${count})` : ''}
+                    {cat}{count > 0 && cat !== 'all' ? ` (${count})` : ''}
                   </button>
                 )
               })}
@@ -262,7 +274,6 @@ export default function POSPage() {
             )}
           </div>
 
-          {/* Menu grid */}
           {filtered.length === 0 ? (
             <div className="pos-empty">
               <UtensilsCrossed size={40} style={{ color: 'var(--slate-300)' }} />
@@ -276,14 +287,7 @@ export default function POSPage() {
                 const isUnavail = !item.is_available
                 return (
                   <div key={item.id} className="pos-item-wrap" style={{ opacity: isUnavail ? 0.5 : 1 }}>
-                    {/* Clickable area for ordering */}
-                    <button
-                      className="pos-item"
-                      data-in-order={!!inOrder}
-                      data-unavail={isUnavail}
-                      onClick={() => !isUnavail && addToOrder(item)}
-                      disabled={isUnavail}
-                    >
+                    <button className="pos-item" data-in-order={!!inOrder} data-unavail={isUnavail} onClick={() => !isUnavail && addToOrder(item)} disabled={isUnavail}>
                       <div className="pos-item-top">
                         <span className="pos-item-cat">{item.category}</span>
                         {inOrder && <span className="pos-item-qty">{inOrder.quantity}</span>}
@@ -301,21 +305,18 @@ export default function POSPage() {
                         )}
                       </div>
                     </button>
-
-                    {/* Management actions below card */}
                     <div className="pos-item-actions">
-                      <button className="pos-item-action-btn edit" onClick={() => openEditItem(item)} title="Edit item">
+                      <button className="pos-item-action-btn edit" onClick={() => openEditItem(item)}>
                         <Pencil size={11} /> Edit
                       </button>
                       <button
                         className="pos-item-action-btn avail"
                         data-available={item.is_available}
                         onClick={() => toggleAvailability(item)}
-                        title={item.is_available ? 'Mark as unavailable (86)' : 'Mark as available'}
                       >
                         {item.is_available ? '✓ Available — click to 86' : '✗ Unavailable — click to restore'}
                       </button>
-                      <button className="pos-item-action-btn del" onClick={() => setDeleteConfirmId(item.id)} title="Delete item">
+                      <button className="pos-item-action-btn del" onClick={() => setDeleteConfirmId(item.id)}>
                         <Trash2 size={11} />
                       </button>
                     </div>
@@ -346,14 +347,9 @@ export default function POSPage() {
           </div>
 
           {submitted ? (
-            <div className="pos-submitted">
-              <Check size={32} style={{ color: '#10b981' }} />
-              <p>Order sent to kitchen!</p>
-            </div>
+            <div className="pos-submitted"><Check size={32} style={{ color: '#10b981' }} /><p>Order sent to kitchen!</p></div>
           ) : orderItems.length === 0 ? (
-            <div className="pos-order-empty">
-              <p>Tap any menu item to add it to the order</p>
-            </div>
+            <div className="pos-order-empty"><p>Tap any menu item to add it to the order</p></div>
           ) : (
             <>
               <div className="pos-order-items">
@@ -372,13 +368,11 @@ export default function POSPage() {
                   </div>
                 ))}
               </div>
-
               <div className="pos-order-summary">
                 <div className="pos-summary-row"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
                 <div className="pos-summary-row"><span>VAT (7.5%)</span><span>{formatCurrency(vat)}</span></div>
                 <div className="pos-summary-row total"><span>Total</span><span>{formatCurrency(total)}</span></div>
               </div>
-
               <div className="pos-order-actions">
                 <button className="pos-clear-btn" onClick={() => setOrderItems([])}><X size={14} /> Clear</button>
                 <button className="pos-submit-btn" onClick={submitOrder} disabled={submitting}>
@@ -390,7 +384,7 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Add / Edit Item Modal */}
+      {/* Add / Edit Modal */}
       {showItemModal && (
         <div className="modal-overlay" onClick={closeItemModal}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -411,8 +405,19 @@ export default function POSPage() {
                   </select>
                 </div>
                 <div className="modal-field">
-                  <label>Dine-in / Bar Price (NGN) *</label>
-                  <input type="number" value={itemPrice} onChange={e => setItemPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="5500" />
+                  <label>Dine-in / Bar Price (₦)</label>
+                  <div className="price-input-wrap">
+                    <span className="price-prefix">₦</span>
+                    <input
+                      className="price-input"
+                      value={itemPriceStr}
+                      onChange={e => handlePriceInput(e.target.value, setItemPriceStr)}
+                      placeholder="5,500"
+                    />
+                  </div>
+                  {itemPriceStr && !priceIsValid && (
+                    <p className="field-error">Enter a valid price</p>
+                  )}
                 </div>
               </div>
               <div className="modal-field">
@@ -427,23 +432,30 @@ export default function POSPage() {
               </div>
               {itemRoomService && (
                 <div className="modal-field">
-                  <label>Room Service Price (NGN) — leave blank for same price</label>
-                  <input
-                    type="number"
-                    value={itemRoomServicePrice}
-                    onChange={e => setItemRoomServicePrice(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder={itemPrice ? `Same as dine-in (${formatCurrency(Number(itemPrice))})` : 'Same as dine-in price'}
-                  />
+                  <label>Room Service Price (₦) — leave blank if same as dine-in</label>
+                  <div className="price-input-wrap">
+                    <span className="price-prefix">₦</span>
+                    <input
+                      className="price-input"
+                      value={itemRoomServicePriceStr}
+                      onChange={e => handlePriceInput(e.target.value, setItemRoomServicePriceStr)}
+                      placeholder={itemPriceStr ? `Same as dine-in (₦${itemPriceStr})` : 'Same as dine-in'}
+                    />
+                  </div>
+                </div>
+              )}
+              {itemPriceStr && priceIsValid && (
+                <div className="price-preview">
+                  <span>Dine-in: <strong>{formatCurrency(parsePrice(itemPriceStr))}</strong></span>
+                  {itemRoomService && (
+                    <span>Room service: <strong>{itemRoomServicePriceStr ? formatCurrency(parsePrice(itemRoomServicePriceStr)) : formatCurrency(parsePrice(itemPriceStr))} {!itemRoomServicePriceStr ? '(same)' : ''}</strong></span>
+                  )}
                 </div>
               )}
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={closeItemModal}>Cancel</button>
-              <button
-                className="modal-save"
-                onClick={saveItem}
-                disabled={savingItem || !itemName || itemPrice === ''}
-              >
+              <button className="modal-save" onClick={saveItem} disabled={savingItem || !itemName || !priceIsValid}>
                 {savingItem ? 'Saving...' : editingItem ? 'Save Changes' : 'Add to Menu'}
               </button>
             </div>
@@ -451,7 +463,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* Delete Confirm Modal */}
+      {/* Delete Confirm */}
       {deleteConfirmId && (
         <div className="modal-overlay" onClick={() => setDeleteConfirmId(null)}>
           <div className="modal-card small" onClick={e => e.stopPropagation()}>
@@ -461,15 +473,15 @@ export default function POSPage() {
             </div>
             <div className="modal-body">
               <p style={{ fontSize: 14, color: 'var(--slate-600)', margin: 0 }}>
-                This will permanently remove <strong>{menuItems.find(m => m.id === deleteConfirmId)?.name}</strong> from your menu. This cannot be undone.
+                Permanently remove <strong>{menuItems.find(m => m.id === deleteConfirmId)?.name}</strong> from your menu?
               </p>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '8px 0 0' }}>
-                Tip: If the item is temporarily out of stock, use the <strong>Available / 86</strong> toggle instead of deleting.
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                Tip: Use the availability toggle to temporarily hide an item instead of deleting it.
               </p>
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
-              <button className="modal-delete" onClick={() => deleteItem(deleteConfirmId)}>Delete Permanently</button>
+              <button className="modal-delete" onClick={() => deleteItem(deleteConfirmId)}>Delete</button>
             </div>
           </div>
         </div>
@@ -481,29 +493,22 @@ export default function POSPage() {
         .pos-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .pos-sub { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
         .pos-add-btn { display: flex; align-items: center; gap: 6px; padding: 9px 16px; background: var(--navy-800); color: white; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; border-radius: 8px; cursor: pointer; }
-
         .pos-body { display: flex; gap: 20px; align-items: flex-start; }
         .pos-menu { flex: 1; min-width: 0; }
-
         .pos-order-type { display: flex; gap: 6px; margin-bottom: 14px; background: var(--slate-100); border-radius: 10px; padding: 4px; }
         .pos-type-btn { flex: 1; padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; cursor: pointer; color: var(--slate-500); background: transparent; text-transform: capitalize; }
         .pos-type-btn[data-active="true"] { background: white; color: var(--slate-800); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-
         .pos-cat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
         .pos-categories { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
         .pos-cat-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; text-transform: capitalize; }
         .pos-cat-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
         .pos-unavail-toggle { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; white-space: nowrap; }
-        .pos-unavail-toggle[data-active="true"] { background: var(--slate-200); color: var(--slate-700); }
-
+        .pos-unavail-toggle[data-active="true"] { background: var(--slate-200); }
         .pos-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px; color: var(--text-muted); }
         .pos-empty p { font-size: 14px; font-weight: 600; margin: 0; }
-
         .pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-
-        .pos-item-wrap { display: flex; flex-direction: column; gap: 0; border: 1.5px solid var(--slate-200); border-radius: 12px; overflow: hidden; transition: all 0.12s; }
+        .pos-item-wrap { display: flex; flex-direction: column; border: 1.5px solid var(--slate-200); border-radius: 12px; overflow: hidden; transition: all 0.12s; }
         .pos-item-wrap:hover { border-color: var(--navy-400); box-shadow: 0 4px 12px rgba(0,0,0,0.07); }
-
         .pos-item { background: white; padding: 14px; text-align: left; cursor: pointer; font-family: 'DM Sans', sans-serif; display: flex; flex-direction: column; gap: 4px; border: none; width: 100%; }
         .pos-item[data-in-order="true"] { background: var(--gold-100); }
         .pos-item[data-unavail="true"] { cursor: default; }
@@ -517,8 +522,6 @@ export default function POSPage() {
         .pos-item-price { font-size: 13px; font-weight: 700; color: var(--navy-800); margin: 0; }
         .pos-item-rs-price { font-size: 11px; color: #065f46; font-weight: 600; margin: 0; }
         .pos-item-rs-badge { font-size: 10px; color: #065f46; font-weight: 600; margin: 0; }
-
-        /* Management action bar */
         .pos-item-actions { display: flex; border-top: 1px solid var(--slate-100); background: var(--slate-50); }
         .pos-item-action-btn { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 4px; font-size: 10px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: none; cursor: pointer; transition: background 0.1s; flex-shrink: 0; }
         .pos-item-action-btn.edit { background: none; color: var(--slate-500); width: 48px; border-right: 1px solid var(--slate-200); }
@@ -530,8 +533,6 @@ export default function POSPage() {
         .pos-item-action-btn.avail[data-available="true"]:hover { background: #fef3c7; color: #92400e; }
         .pos-item-action-btn.avail[data-available="false"] { color: #991b1b; }
         .pos-item-action-btn.avail[data-available="false"]:hover { background: #d1fae5; color: #065f46; }
-
-        /* Order panel */
         .pos-order { width: 300px; flex-shrink: 0; background: white; border: 1px solid var(--slate-200); border-radius: 14px; overflow: hidden; position: sticky; top: 80px; display: flex; flex-direction: column; }
         @media (max-width: 900px) { .pos-body { flex-direction: column; } .pos-order { width: 100%; position: static; } }
         .pos-order-header { padding: 16px; border-bottom: 1px solid var(--slate-200); display: flex; flex-direction: column; gap: 10px; }
@@ -557,8 +558,6 @@ export default function POSPage() {
         .pos-clear-btn { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; }
         .pos-submit-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 700; font-family: 'DM Sans', sans-serif; background: var(--navy-800); color: white; border: none; cursor: pointer; }
         .pos-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        /* Modals */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-card { background: white; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 24px 48px rgba(0,0,0,0.2); overflow: hidden; }
         .modal-card.small { max-width: 380px; }
@@ -571,6 +570,13 @@ export default function POSPage() {
         .modal-field input, .modal-field select { padding: 10px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; }
         .modal-field input:focus, .modal-field select:focus { border-color: var(--gold-500); box-shadow: 0 0 0 3px rgba(201,168,76,0.1); }
         .modal-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .price-input-wrap { display: flex; align-items: center; border: 1px solid var(--slate-200); border-radius: 8px; overflow: hidden; }
+        .price-input-wrap:focus-within { border-color: var(--gold-500); box-shadow: 0 0 0 3px rgba(201,168,76,0.1); }
+        .price-prefix { padding: 10px 10px 10px 12px; font-size: 14px; font-weight: 700; color: var(--slate-500); background: var(--slate-100); border-right: 1px solid var(--slate-200); }
+        .price-input { flex: 1; padding: 10px 12px; border: none; outline: none; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); background: white; }
+        .field-error { font-size: 11px; color: #ef4444; margin: 0; }
+        .price-preview { display: flex; gap: 16px; background: var(--slate-100); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--slate-600); flex-wrap: wrap; }
+        .price-preview strong { color: var(--navy-800); }
         .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--slate-200); }
         .modal-cancel { padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
         .modal-save { padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; background: var(--navy-800); color: white; border: none; cursor: pointer; }

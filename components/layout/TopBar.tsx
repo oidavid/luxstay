@@ -106,14 +106,18 @@ export function TopBar() {
         .lux-topbar-left { display: flex; flex-direction: column; gap: 1px; }
 
         .lux-topbar-hotel {
-          display: flex;
+          display: inline-flex;
           align-items: center;
-          gap: 5px;
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--gold-500);
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--navy-900);
           text-transform: uppercase;
-          letter-spacing: 0.06em;
+          letter-spacing: 0.08em;
+          background: var(--gold-100);
+          border: 1.5px solid var(--gold-400);
+          border-radius: 6px;
+          padding: 3px 10px 3px 8px;
         }
 
         .lux-topbar-title {
@@ -185,3 +189,4 @@ export function TopBar() {
     </header>
   )
 }
+

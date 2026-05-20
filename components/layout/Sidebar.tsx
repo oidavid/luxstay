@@ -55,31 +55,27 @@ export function Sidebar() {
 
   const [hotelName, setHotelName] = useState('Your Hotel')
   const [userName,  setUserName]  = useState('...')
-  const [userRole,  setUserRole]  = useState('Administrator')
+  const [userRole,  setUserRole]  = useState('hotel owner')
   const [initials,  setInitials]  = useState('H')
 
   useEffect(() => {
     async function loadUserData() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-
       const { data: profile } = await supabase
         .from('profiles')
         .select('full_name, role, hotel_id')
         .eq('id', user.id)
         .single()
-
       if (profile) {
         setUserName(profile.full_name)
         setUserRole(profile.role.replace('_', ' '))
         setInitials(profile.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase())
-
         const { data: hotel } = await supabase
           .from('hotels')
           .select('name')
           .eq('id', profile.hotel_id)
           .single()
-
         if (hotel) setHotelName(hotel.name)
       }
     }
@@ -132,8 +128,8 @@ export function Sidebar() {
           <div className="lux-sidebar-user">
             <div className="lux-sidebar-avatar">{initials}</div>
             <div className="lux-sidebar-user-info">
-              <p className="lux-sidebar-user-name">{hotelName}</p>
-              <p className="lux-sidebar-user-role">{userName} · {userRole}</p>
+              <p className="lux-sidebar-user-name">{userName}</p>
+              <p className="lux-sidebar-user-role">{userRole}</p>
             </div>
           </div>
           <button className="lux-signout-btn" onClick={handleSignOut}>

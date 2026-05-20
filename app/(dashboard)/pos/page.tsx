@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -50,6 +50,8 @@ export default function POSPage() {
   const [newPrice, setNewPrice] = useState<number | ''>('')
   const [newDesc, setNewDesc] = useState('')
   const [savingItem, setSavingItem] = useState(false)
+  const [availableRoomService, setAvailableRoomService] = useState(true)
+  const [roomServicePriceOverride, setRoomServicePriceOverride] = useState<number | ''>('')
 
   useEffect(() => { loadData() }, [])
 
@@ -81,8 +83,11 @@ export default function POSPage() {
       price: Number(newPrice),
       description: newDesc || null,
       is_available: true,
+      available_room_service: availableRoomService,
+      room_service_price: roomServicePriceOverride !== '' ? Number(roomServicePriceOverride) : null,
     })
     setNewName(''); setNewCategory('lunch'); setNewPrice(''); setNewDesc('')
+    setAvailableRoomService(true); setRoomServicePriceOverride('')
     setShowAddItem(false)
     await loadData()
     setSavingItem(false)
@@ -307,6 +312,18 @@ export default function POSPage() {
                 <div className="modal-field"><label>Price (NGN) *</label><input type="number" value={newPrice} onChange={e => setNewPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="2500" /></div>
               </div>
               <div className="modal-field"><label>Description</label><input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description (optional)" /></div>
+              <div className="modal-field">
+                <label className="checkbox-label" style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:500,color:"var(--slate-700)",cursor:"pointer",textTransform:"none",letterSpacing:0}}>
+                  <input type="checkbox" checked={availableRoomService} onChange={e => setAvailableRoomService(e.target.checked)} style={{width:16,height:16,accentColor:"var(--navy-800)"}} />
+                  Available for room service
+                </label>
+              </div>
+              {availableRoomService && (
+                <div className="modal-field">
+                  <label>Room Service Price (leave blank for same price)</label>
+                  <input type="number" value={roomServicePriceOverride} onChange={e => setRoomServicePriceOverride(e.target.value === "" ? "" : Number(e.target.value))} placeholder={`Same as menu price (${newPrice || "0"})`} />
+                </div>
+              )}
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setShowAddItem(false)}>Cancel</button>
@@ -391,3 +408,4 @@ export default function POSPage() {
     </div>
   )
 }
+

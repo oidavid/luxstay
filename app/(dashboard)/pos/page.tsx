@@ -50,6 +50,7 @@ export default function POSPage() {
   const [newPrice, setNewPrice] = useState<number | ''>('')
   const [newDesc, setNewDesc] = useState('')
   const [savingItem, setSavingItem] = useState(false)
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [availableRoomService, setAvailableRoomService] = useState(true)
   const [roomServicePriceOverride, setRoomServicePriceOverride] = useState<number | ''>('')
 
@@ -91,6 +92,41 @@ export default function POSPage() {
     setShowAddItem(false)
     await loadData()
     setSavingItem(false)
+  }
+
+  function openEditItem(item: MenuItem) {
+    setEditingItem(item)
+    setNewName(item.name)
+    setNewCategory(item.category)
+    setNewPrice(item.price)
+    setNewDesc(item.description ?? '')
+    setAvailableRoomService((item as any).available_room_service ?? true)
+    setRoomServicePriceOverride((item as any).room_service_price ?? '')
+    setShowAddItem(true)
+  }
+
+  async function saveEditItem() {
+    if (!editingItem || !newName || newPrice === '') return
+    setSavingItem(true)
+    await supabase.from('menu_items').update({
+      name: newName,
+      category: newCategory,
+      price: Number(newPrice),
+      description: newDesc || null,
+      available_room_service: availableRoomService,
+      room_service_price: roomServicePriceOverride !== '' ? Number(roomServicePriceOverride) : null,
+    }).eq('id', editingItem.id)
+    setEditingItem(null)
+    setNewName(''); setNewCategory('lunch'); setNewPrice(''); setNewDesc('')
+    setAvailableRoomService(true); setRoomServicePriceOverride('')
+    setShowAddItem(false)
+    await loadData()
+    setSavingItem(false)
+  }
+
+  async function toggleItemAvailability(id: string, current: boolean) {
+    await supabase.from('menu_items').update({ is_available: !current }).eq('id', id)
+    setMenuItems(prev => prev.map(m => m.id === id ? { ...m, is_available: !current } : m))
   }
 
   function addToOrder(item: MenuItem) {
@@ -221,6 +257,12 @@ export default function POSPage() {
                     <p className="pos-item-name">{item.name}</p>
                     {item.description && <p className="pos-item-desc">{item.description}</p>}
                     <p className="pos-item-price">{formatCurrency(item.price)}</p>
+                    <div className="pos-item-actions" onClick={e => e.stopPropagation()}>
+                      <button className="pos-item-edit" onClick={() => openEditItem(item)}>Edit</button>
+                      <button className="pos-item-toggle" data-active={item.is_available} onClick={() => toggleItemAvailability(item.id, item.is_available)}>
+                        {item.is_available ? "Available" : "86d"}
+                      </button>
+                    </div>
                   </button>
                 )
               })}
@@ -297,8 +339,8 @@ export default function POSPage() {
         <div className="modal-overlay" onClick={() => setShowAddItem(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Add Menu Item</h3>
-              <button className="modal-close" onClick={() => setShowAddItem(false)}><X size={16} /></button>
+              <h3>{editingItem ? "Edit Menu Item" : "Add Menu Item"}</h3>
+              <button className="modal-close" onClick={() => { setShowAddItem(false); setEditingItem(null); setNewName(""); setNewCategory("lunch"); setNewPrice(""); setNewDesc(""); }}><X size={16} /></button>
             </div>
             <div className="modal-body">
               <div className="modal-field"><label>Item Name *</label><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Jollof Rice" /></div>
@@ -359,6 +401,12 @@ export default function POSPage() {
         .pos-item-name { font-size: 14px; font-weight: 700; color: var(--slate-800); margin: 4px 0 0; }
         .pos-item-desc { font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4; }
         .pos-item-price { font-size: 13px; font-weight: 700; color: var(--navy-800); margin: 4px 0 0; }
+        .pos-item-actions { display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid var(--slate-100); padding-top: 8px; }
+        .pos-item-edit { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: "DM Sans", sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
+        .pos-item-edit:hover { background: var(--slate-100); }
+        .pos-item-toggle { flex: 1; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: "DM Sans", sans-serif; border: none; cursor: pointer; }
+        .pos-item-toggle[data-active="true"] { background: #d1fae5; color: #065f46; }
+        .pos-item-toggle[data-active="false"] { background: #fee2e2; color: #991b1b; }
 
         /* Order panel */
         .pos-order { width: 300px; flex-shrink: 0; background: white; border: 1px solid var(--slate-200); border-radius: 14px; overflow: hidden; position: sticky; top: 80px; display: flex; flex-direction: column; }
@@ -408,4 +456,5 @@ export default function POSPage() {
     </div>
   )
 }
+
 

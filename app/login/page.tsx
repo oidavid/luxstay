@@ -123,7 +123,7 @@ export default function LoginPage() {
 
         {/* Register */}
         <a href="/onboarding" className="lux-register-btn">
-          Create your hotel account
+          Get started — it's free
         </a>
 
         {/* Footer */}

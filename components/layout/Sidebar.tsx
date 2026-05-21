@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, BedDouble, CalendarCheck, Users, UtensilsCrossed,
   Sparkles, Wrench, BarChart3, Settings, LogOut, ChevronRight,
-  CreditCard, MessageSquare, UserCog
+  CreditCard, MessageSquare, UserCog, Moon
 } from 'lucide-react'
 
 const navItems = [
@@ -32,6 +32,7 @@ const navItems = [
   {
     group: 'Management',
     items: [
+      { label: 'Night Audit',  href: '/night-audit',  icon: Moon },
       { label: 'Reports',      href: '/reports',      icon: BarChart3 },
       { label: 'Staff & HR',   href: '/hr',           icon: UserCog },
       { label: 'Billing',      href: '/billing',      icon: CreditCard },
@@ -333,5 +334,6 @@ export function Sidebar() {
     </>
   )
 }
+
 
 

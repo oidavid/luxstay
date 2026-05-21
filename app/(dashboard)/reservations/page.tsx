@@ -341,6 +341,24 @@ export default function ReservationsPage() {
 
     if (newStatus === 'checked_out' && selected?.room?.id) {
       await supabase.from('rooms').update({ status: 'dirty' }).eq('id', selected.room.id)
+      // Auto-create housekeeping task for this room
+      const { data: existingTask } = await supabase
+        .from('housekeeping_tasks')
+        .select('id')
+        .eq('hotel_id', hotelId!)
+        .eq('room_id', selected.room.id)
+        .in('status', ['pending', 'in_progress'])
+        .single()
+      if (!existingTask) {
+        await supabase.from('housekeeping_tasks').insert({
+          hotel_id: hotelId,
+          room_id: selected.room.id,
+          task_type: 'checkout_clean',
+          status: 'pending',
+          priority: 1,
+          notes: `Auto-created on checkout — ${selected.guest?.full_name ?? 'Guest'}`,
+        })
+      }
     }
 
     setReservations(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r))

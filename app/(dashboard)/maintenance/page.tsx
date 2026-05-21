@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Wrench, Plus, X, AlertCircle, Clock, CheckCircle } from 'lucide-react'
+import { Wrench, Plus, X, Pencil } from 'lucide-react'
 
 type Ticket = {
   id: string
@@ -16,7 +16,11 @@ type Ticket = {
   room: { number: string } | null
   reporter: { full_name: string } | null
   assignee: { full_name: string } | null
+  assigned_to: string | null
 }
+
+type Staff = { id: string; full_name: string }
+type Room = { id: string; number: string }
 
 const PRIORITY_CONFIG: Record<string, { color: string; bg: string }> = {
   low:    { color: '#475569', bg: '#f1f5f9' },
@@ -31,13 +35,17 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   verified:    { label: 'Verified',    color: '#475569', bg: '#f1f5f9' },
 }
 
+const ISSUE_TYPES = ['electrical', 'plumbing', 'ac', 'furniture', 'structural', 'appliance', 'internet', 'other']
+
 export default function MaintenancePage() {
   const supabase = createClient()
   const [hotelId, setHotelId] = useState<string | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
-  const [rooms, setRooms] = useState<{ id: string; number: string }[]>([])
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [staff, setStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
-  const [showNew, setShowNew] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [editingTicket, setEditingTicket] = useState<Ticket | null>(null)
   const [selected, setSelected] = useState<Ticket | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -45,6 +53,8 @@ export default function MaintenancePage() {
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState('medium')
   const [roomId, setRoomId] = useState('')
+  const [assignedTo, setAssignedTo] = useState('')
+  const [resolutionNotes, setResolutionNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadData() }, [])
@@ -57,36 +67,61 @@ export default function MaintenancePage() {
     if (!profile) return
     setHotelId(profile.hotel_id)
 
-    const [{ data: t }, { data: r }] = await Promise.all([
+    const [{ data: t }, { data: r }, { data: s }] = await Promise.all([
       supabase.from('maintenance_tickets').select(`
-        id, room_id, issue_type, description, priority, status, resolved_at, resolution_notes, created_at,
+        id, room_id, issue_type, description, priority, status,
+        resolved_at, resolution_notes, created_at, assigned_to,
         room:rooms(number),
         reporter:profiles!reported_by(full_name),
         assignee:profiles!assigned_to(full_name)
       `).eq('hotel_id', profile.hotel_id).order('created_at', { ascending: false }),
-      supabase.from('rooms').select('id, number').eq('hotel_id', profile.hotel_id).eq('is_active', true).order('number')
+      supabase.from('rooms').select('id, number').eq('hotel_id', profile.hotel_id).eq('is_active', true).order('number'),
+      supabase.from('profiles').select('id, full_name').eq('hotel_id', profile.hotel_id).eq('is_active', true)
     ])
 
     setTickets((t as unknown as Ticket[]) ?? [])
     setRooms(r ?? [])
+    setStaff(s ?? [])
     setLoading(false)
   }
 
-  async function createTicket() {
+  function openAdd() {
+    setEditingTicket(null)
+    setIssueType('electrical'); setDescription(''); setPriority('medium')
+    setRoomId(''); setAssignedTo(''); setResolutionNotes('')
+    setShowModal(true)
+  }
+
+  function openEdit(ticket: Ticket) {
+    setEditingTicket(ticket)
+    setIssueType(ticket.issue_type); setDescription(ticket.description)
+    setPriority(ticket.priority); setRoomId(ticket.room_id ?? '')
+    setAssignedTo(ticket.assigned_to ?? ''); setResolutionNotes(ticket.resolution_notes ?? '')
+    setShowModal(true)
+  }
+
+  async function saveTicket() {
     if (!hotelId || !description) return
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('maintenance_tickets').insert({
+
+    const payload = {
       hotel_id: hotelId,
       room_id: roomId || null,
       issue_type: issueType,
       description,
       priority,
-      status: 'open',
-      reported_by: user?.id,
-    })
-    setShowNew(false)
-    setDescription(''); setRoomId(''); setPriority('medium'); setIssueType('electrical')
+      assigned_to: assignedTo || null,
+      resolution_notes: resolutionNotes || null,
+    }
+
+    if (editingTicket) {
+      await supabase.from('maintenance_tickets').update(payload).eq('id', editingTicket.id)
+    } else {
+      await supabase.from('maintenance_tickets').insert({ ...payload, status: 'open', reported_by: user?.id })
+    }
+
+    setShowModal(false)
     await loadData()
     setSaving(false)
   }
@@ -97,6 +132,12 @@ export default function MaintenancePage() {
     await supabase.from('maintenance_tickets').update(updates).eq('id', id)
     setTickets(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t))
     setSelected(prev => prev?.id === id ? { ...prev, status: newStatus } : prev)
+  }
+
+  async function deleteTicket(id: string) {
+    await supabase.from('maintenance_tickets').delete().eq('id', id)
+    setTickets(prev => prev.filter(t => t.id !== id))
+    if (selected?.id === id) setSelected(null)
   }
 
   const filtered = tickets.filter(t => statusFilter === 'all' || t.status === statusFilter)
@@ -110,7 +151,7 @@ export default function MaintenancePage() {
           <h2 className="mt-title">Maintenance</h2>
           <p className="mt-sub">{tickets.filter(t => t.status === 'open').length} open · {tickets.filter(t => t.status === 'in_progress').length} in progress</p>
         </div>
-        <button className="mt-new-btn" onClick={() => setShowNew(true)}><Plus size={15} /> Log Issue</button>
+        <button className="mt-new-btn" onClick={openAdd}><Plus size={15} /> Log Issue</button>
       </div>
 
       <div className="mt-stats">
@@ -146,9 +187,18 @@ export default function MaintenancePage() {
                       <span className="mt-priority" style={{ color: pcfg.color, background: pcfg.bg }}>{t.priority}</span>
                     </div>
                     <p className="mt-desc">{t.description}</p>
-                    <p className="mt-meta">{t.room ? `Room ${t.room.number}` : 'General'} · {new Date(t.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}</p>
+                    <p className="mt-meta">
+                      {t.room ? `Room ${t.room.number}` : 'General'} · {new Date(t.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}
+                      {t.assignee && ` · ${t.assignee.full_name}`}
+                    </p>
                   </div>
-                  <span className="mt-status" style={{ color: scfg.color, background: scfg.bg }}>{scfg.label}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+                    <span className="mt-status" style={{ color: scfg.color, background: scfg.bg }}>{scfg.label}</span>
+                    <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                      <button className="mt-icon-btn" onClick={() => openEdit(t)}><Pencil size={11} /></button>
+                      <button className="mt-icon-btn danger" onClick={() => deleteTicket(t.id)}><X size={11} /></button>
+                    </div>
+                  </div>
                 </button>
               )
             })
@@ -162,10 +212,18 @@ export default function MaintenancePage() {
               <button className="mt-panel-close" onClick={() => setSelected(null)}><X size={15} /></button>
             </div>
             <p className="mt-panel-desc">{selected.description}</p>
+            {selected.resolution_notes && (
+              <div style={{ background: '#d1fae5', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#065f46', margin: '0 0 4px' }}>Resolution Notes</p>
+                <p style={{ fontSize: 13, color: '#065f46', margin: 0 }}>{selected.resolution_notes}</p>
+              </div>
+            )}
             <div className="mt-panel-meta">
               {selected.room && <p>Room {selected.room.number}</p>}
               {selected.reporter && <p>Reported by: {selected.reporter.full_name}</p>}
+              {selected.assignee && <p>Assigned to: {selected.assignee.full_name}</p>}
               <p>Priority: <span style={{ color: PRIORITY_CONFIG[selected.priority]?.color, fontWeight: 600 }}>{selected.priority}</span></p>
+              <p>Created: {new Date(selected.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
             </div>
             <p className="mt-panel-label">Update Status</p>
             <div className="mt-status-grid">
@@ -177,45 +235,63 @@ export default function MaintenancePage() {
                 </button>
               ))}
             </div>
+            <button className="mt-edit-btn" onClick={() => openEdit(selected)}>
+              <Pencil size={13} /> Edit Ticket
+            </button>
           </div>
         )}
       </div>
 
-      {showNew && (
-        <div className="modal-overlay" onClick={() => setShowNew(false)}>
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Log Maintenance Issue</h3>
-              <button className="modal-close" onClick={() => setShowNew(false)}><X size={16} /></button>
+              <h3>{editingTicket ? 'Edit Ticket' : 'Log Maintenance Issue'}</h3>
+              <button className="modal-close" onClick={() => setShowModal(false)}><X size={16} /></button>
             </div>
             <div className="modal-body">
               <div className="modal-field">
                 <label>Issue Type</label>
                 <select value={issueType} onChange={e => setIssueType(e.target.value)}>
-                  {['electrical','plumbing','ac','furniture','structural','other'].map(t => <option key={t} value={t}>{t}</option>)}
+                  {ISSUE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div className="modal-field"><label>Room (optional)</label>
+              <div className="modal-field">
+                <label>Room (optional)</label>
                 <select value={roomId} onChange={e => setRoomId(e.target.value)}>
                   <option value="">General / Not room-specific</option>
                   {rooms.map(r => <option key={r.id} value={r.id}>Room {r.number}</option>)}
                 </select>
               </div>
-              <div className="modal-field"><label>Description *</label>
+              <div className="modal-field">
+                <label>Description *</label>
                 <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Describe the issue in detail..." style={{ padding: '10px 12px', border: '1px solid var(--slate-200)', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', outline: 'none', resize: 'vertical' }} />
               </div>
               <div className="modal-field">
                 <label>Priority</label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {['low','medium','urgent'].map(p => (
+                  {['low', 'medium', 'urgent'].map(p => (
                     <button key={p} onClick={() => setPriority(p)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1.5px solid ${priority === p ? PRIORITY_CONFIG[p].color : 'var(--slate-200)'}`, background: priority === p ? PRIORITY_CONFIG[p].bg : 'white', color: priority === p ? PRIORITY_CONFIG[p].color : 'var(--slate-500)', fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', textTransform: 'capitalize' }}>{p}</button>
                   ))}
                 </div>
               </div>
+              <div className="modal-field">
+                <label>Assign To</label>
+                <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {staff.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </select>
+              </div>
+              {editingTicket && (
+                <div className="modal-field">
+                  <label>Resolution Notes</label>
+                  <textarea value={resolutionNotes} onChange={e => setResolutionNotes(e.target.value)} rows={2} placeholder="What was done to resolve this issue..." style={{ padding: '10px 12px', border: '1px solid var(--slate-200)', borderRadius: 8, fontSize: 14, fontFamily: 'DM Sans, sans-serif', outline: 'none', resize: 'vertical' }} />
+                </div>
+              )}
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowNew(false)}>Cancel</button>
-              <button className="modal-save" onClick={createTicket} disabled={saving || !description}>{saving ? 'Saving...' : 'Log Issue'}</button>
+              <button className="modal-cancel" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="modal-save" onClick={saveTicket} disabled={saving || !description}>{saving ? 'Saving...' : editingTicket ? 'Save Changes' : 'Log Issue'}</button>
             </div>
           </div>
         </div>
@@ -248,6 +324,9 @@ export default function MaintenancePage() {
         .mt-desc { font-size: 13px; color: var(--slate-600); margin: 0 0 4px; }
         .mt-meta { font-size: 11px; color: var(--text-muted); margin: 0; }
         .mt-status { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; flex-shrink: 0; }
+        .mt-icon-btn { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--slate-200); background: white; color: var(--slate-400); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .mt-icon-btn:hover { background: var(--slate-100); }
+        .mt-icon-btn.danger:hover { background: #fee2e2; color: #991b1b; }
         .mt-panel { width: 300px; flex-shrink: 0; background: white; border: 1px solid var(--slate-200); border-radius: 14px; padding: 20px; position: sticky; top: 80px; }
         @media (max-width: 900px) { .mt-body { flex-direction: column; } .mt-panel { width: 100%; position: static; } }
         .mt-panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
@@ -256,14 +335,16 @@ export default function MaintenancePage() {
         .mt-panel-desc { font-size: 13px; color: var(--slate-600); margin: 0 0 12px; line-height: 1.5; }
         .mt-panel-meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; font-size: 12px; color: var(--slate-500); }
         .mt-panel-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 8px; }
-        .mt-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .mt-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
         .mt-status-btn { padding: 8px; border-radius: 8px; font-size: 11px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid; cursor: pointer; }
+        .mt-edit-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 9px; border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
+        .mt-edit-btn:hover { background: var(--slate-100); }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-card { background: white; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 24px 48px rgba(0,0,0,0.2); overflow: hidden; }
         .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--slate-200); }
         .modal-header h3 { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 700; color: var(--slate-800); margin: 0; }
         .modal-close { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--slate-200); background: white; color: var(--slate-400); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+        .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; max-height: 60vh; overflow-y: auto; }
         .modal-field { display: flex; flex-direction: column; gap: 6px; }
         .modal-field label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--slate-500); }
         .modal-field input, .modal-field select { padding: 10px 12px; border: 1px solid var(--slate-200); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--slate-800); outline: none; }

@@ -62,8 +62,15 @@ export default function HousekeepingPage() {
   const [taskNotes, setTaskNotes] = useState('')
   const [taskAssignee, setTaskAssignee] = useState('')
   const [savingTask, setSavingTask] = useState(false)
+  const [myTasksOnly, setMyTasksOnly] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    loadData()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setCurrentUserId(user.id)
+    })
+  }, [])
 
   async function loadData() {
     setLoading(true)
@@ -261,7 +268,10 @@ export default function HousekeepingPage() {
       priority: taskPriority,
       notes: taskNotes || null,
       assigned_to: taskAssignee || null,
-      status: editingTask?.status ?? 'pending',
+      // If task type changed on a completed task, reset to pending
+      status: editingTask && taskType !== editingTask.task_type && ['completed','inspected'].includes(editingTask.status)
+        ? 'pending'
+        : editingTask?.status ?? 'pending',
     }
 
     if (editingTask) {
@@ -280,7 +290,10 @@ export default function HousekeepingPage() {
     setTasks(prev => prev.filter(t => t.id !== id))
   }
 
-  const filtered = tasks.filter(t => statusFilter === 'all' || t.status === statusFilter)
+  const filtered = tasks.filter(t => {
+    if (myTasksOnly && t.assigned_to !== currentUserId) return false
+    return statusFilter === "all" || t.status === statusFilter
+  })
   const pendingCount = tasks.filter(t => t.status === 'pending').length
   const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
 
@@ -327,6 +340,7 @@ export default function HousekeepingPage() {
         })}
       </div>
 
+      <div className="hk-filters-row">
       <div className="hk-filters">
         {['all', ...Object.keys(STATUS_CONFIG)].map(s => (
           <button key={s} className="hk-filter-btn" data-active={statusFilter === s} onClick={() => setStatusFilter(s)}>
@@ -557,7 +571,10 @@ export default function HousekeepingPage() {
         .hk-stat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
         .hk-stat-num { font-size: 24px; font-weight: 800; }
         .hk-stat-label { font-size: 12px; color: var(--slate-600); margin: 0; font-weight: 600; }
-        .hk-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+        .hk-filters-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .hk-filters { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+        .hk-my-tasks-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: "DM Sans", sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; white-space: nowrap; }
+        .hk-my-tasks-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
         .hk-filter-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; }
         .hk-filter-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
         .hk-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px; text-align: center; color: var(--text-muted); }

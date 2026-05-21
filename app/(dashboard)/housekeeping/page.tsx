@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Sparkles, Check, Clock, X, Plus, Pencil, User, ChevronRight, AlertCircle } from 'lucide-react'
+import { Sparkles, Check, Clock, X, Plus, Pencil, User, AlertCircle } from 'lucide-react'
 
 type Task = {
   id: string
@@ -43,9 +43,11 @@ export default function HousekeepingPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [myTasksOnly, setMyTasksOnly] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
 
-  // Generate preview modal
+  // Generate preview
   const [showPreview, setShowPreview] = useState(false)
   const [preview, setPreview] = useState<GeneratePreview | null>(null)
   const [defaultAssignee, setDefaultAssignee] = useState('')
@@ -53,7 +55,7 @@ export default function HousekeepingPage() {
   const [generating, setGenerating] = useState(false)
   const [generated, setGenerated] = useState(false)
 
-  // Add/Edit task modal
+  // Add/Edit modal
   const [showModal, setShowModal] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [taskRoomId, setTaskRoomId] = useState('')
@@ -62,8 +64,6 @@ export default function HousekeepingPage() {
   const [taskNotes, setTaskNotes] = useState('')
   const [taskAssignee, setTaskAssignee] = useState('')
   const [savingTask, setSavingTask] = useState(false)
-  const [myTasksOnly, setMyTasksOnly] = useState(false)
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -102,65 +102,32 @@ export default function HousekeepingPage() {
 
     const today = new Date().toISOString().split('T')[0]
 
-    // Get today's checkouts
-    const { data: checkouts } = await supabase
-      .from('reservations')
-      .select('room_id, room:rooms(number), guest:guests(full_name)')
-      .eq('hotel_id', hotelId)
-      .eq('check_out_date', today)
-      .eq('status', 'checked_in')
-
-    // Get occupied rooms staying over
-    const { data: stayovers } = await supabase
-      .from('reservations')
-      .select('room_id, room:rooms(number)')
-      .eq('hotel_id', hotelId)
-      .eq('status', 'checked_in')
-      .neq('check_out_date', today)
-
-    // Get dirty rooms without a reservation (manual checkouts)
-    const { data: dirtyRooms } = await supabase
-      .from('rooms')
-      .select('id, number')
-      .eq('hotel_id', hotelId)
-      .eq('status', 'dirty')
-      .eq('is_active', true)
-
-    // Get rooms that already have tasks today
-    const { data: existingTasks } = await supabase
-      .from('housekeeping_tasks')
-      .select('room_id')
-      .eq('hotel_id', hotelId)
-      .in('status', ['pending', 'in_progress'])
+    const [{ data: checkouts }, { data: stayovers }, { data: dirtyRooms }, { data: existingTasks }] = await Promise.all([
+      supabase.from('reservations').select('room_id, room:rooms(number), guest:guests(full_name)').eq('hotel_id', hotelId).eq('check_out_date', today).eq('status', 'checked_in'),
+      supabase.from('reservations').select('room_id, room:rooms(number)').eq('hotel_id', hotelId).eq('status', 'checked_in').neq('check_out_date', today),
+      supabase.from('rooms').select('id, number').eq('hotel_id', hotelId).eq('status', 'dirty').eq('is_active', true),
+      supabase.from('housekeeping_tasks').select('room_id').eq('hotel_id', hotelId).in('status', ['pending', 'in_progress'])
+    ])
 
     const existingRoomIds = new Set(existingTasks?.map(t => t.room_id) ?? [])
-
-    // Build checkout cleans list
     const checkoutCleans: GeneratePreview['checkout_cleans'] = []
     const alreadyHasTask: string[] = []
 
-    // From reservations checking out today
     for (const co of (checkouts as any[]) ?? []) {
       if (!co.room_id) continue
       if (existingRoomIds.has(co.room_id)) {
         alreadyHasTask.push(`Room ${co.room?.number}`)
       } else {
-        checkoutCleans.push({
-          room_id: co.room_id,
-          room_number: co.room?.number ?? '?',
-          guest_name: co.guest?.full_name ?? 'Guest'
-        })
+        checkoutCleans.push({ room_id: co.room_id, room_number: co.room?.number ?? '?', guest_name: co.guest?.full_name ?? 'Guest' })
       }
     }
 
-    // From dirty rooms not in reservations
     for (const dr of dirtyRooms ?? []) {
       if (existingRoomIds.has(dr.id)) continue
       if (checkoutCleans.find(c => c.room_id === dr.id)) continue
       checkoutCleans.push({ room_id: dr.id, room_number: dr.number, guest_name: 'Checkout' })
     }
 
-    // Stayover cleans
     const stayoverCleans: GeneratePreview['stayover_cleans'] = []
     for (const so of (stayovers as any[]) ?? []) {
       if (!so.room_id) continue
@@ -180,7 +147,6 @@ export default function HousekeepingPage() {
 
     const housekeepingStaff = staff.filter(s => ['housekeeping', 'general_manager'].includes(s.role))
     let staffIndex = 0
-
     function nextAssignee() {
       if (defaultAssignee) return defaultAssignee
       if (housekeepingStaff.length === 0) return null
@@ -190,24 +156,15 @@ export default function HousekeepingPage() {
     }
 
     const tasksToCreate = [
-      // Checkout cleans — priority 1
       ...preview.checkout_cleans.map(r => ({
-        hotel_id: hotelId,
-        room_id: r.room_id,
-        task_type: 'checkout_clean',
-        status: 'pending',
-        priority: 1,
+        hotel_id: hotelId, room_id: r.room_id, task_type: 'checkout_clean',
+        status: 'pending', priority: 1,
         notes: `Checkout clean — ${r.guest_name}`,
         assigned_to: nextAssignee(),
       })),
-      // Stayover cleans — priority 2 (only if selected)
       ...(includeStayovers ? preview.stayover_cleans.map(r => ({
-        hotel_id: hotelId,
-        room_id: r.room_id,
-        task_type: 'stayover_clean',
-        status: 'pending',
-        priority: 2,
-        notes: `Stayover clean`,
+        hotel_id: hotelId, room_id: r.room_id, task_type: 'stayover_clean',
+        status: 'pending', priority: 2, notes: 'Stayover clean',
         assigned_to: nextAssignee(),
       })) : [])
     ]
@@ -228,39 +185,38 @@ export default function HousekeepingPage() {
     setUpdating(id)
     const updates: Record<string, unknown> = { status: newStatus }
     if (newStatus === 'completed') updates.completed_at = new Date().toISOString()
-
     await supabase.from('housekeeping_tasks').update(updates).eq('id', id)
-
     const task = tasks.find(t => t.id === id)
     if (task) {
       if (newStatus === 'completed') await supabase.from('rooms').update({ status: 'clean' }).eq('id', task.room_id)
       if (newStatus === 'inspected') await supabase.from('rooms').update({ status: 'available' }).eq('id', task.room_id)
     }
-
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t))
     setUpdating(null)
   }
 
   function openAddTask() {
     setEditingTask(null)
-    setTaskRoomId(''); setTaskType('checkout_clean'); setTaskPriority(2)
-    setTaskNotes(''); setTaskAssignee('')
+    setTaskRoomId(''); setTaskType('checkout_clean'); setTaskPriority(2); setTaskNotes(''); setTaskAssignee('')
     setShowModal(true)
   }
 
   function openEditTask(task: Task) {
     setEditingTask(task)
-    setTaskRoomId(task.room_id)
-    setTaskType(task.task_type)
-    setTaskPriority(task.priority)
-    setTaskNotes(task.notes ?? '')
-    setTaskAssignee(task.assigned_to ?? '')
+    setTaskRoomId(task.room_id); setTaskType(task.task_type); setTaskPriority(task.priority)
+    setTaskNotes(task.notes ?? ''); setTaskAssignee(task.assigned_to ?? '')
     setShowModal(true)
   }
 
   async function saveTask() {
     if (!hotelId || !taskRoomId) return
     setSavingTask(true)
+
+    // If task type changed on a completed/inspected task, reset status to pending
+    const resetStatus = editingTask &&
+      taskType !== editingTask.task_type &&
+      ['completed', 'inspected'].includes(editingTask.status)
+
     const payload = {
       hotel_id: hotelId,
       room_id: taskRoomId,
@@ -268,10 +224,7 @@ export default function HousekeepingPage() {
       priority: taskPriority,
       notes: taskNotes || null,
       assigned_to: taskAssignee || null,
-      // If task type changed on a completed task, reset to pending
-      status: editingTask && taskType !== editingTask.task_type && ['completed','inspected'].includes(editingTask.status)
-        ? 'pending'
-        : editingTask?.status ?? 'pending',
+      status: resetStatus ? 'pending' : (editingTask?.status ?? 'pending'),
     }
 
     if (editingTask) {
@@ -292,10 +245,12 @@ export default function HousekeepingPage() {
 
   const filtered = tasks.filter(t => {
     if (myTasksOnly && t.assigned_to !== currentUserId) return false
-    return statusFilter === "all" || t.status === statusFilter
+    return statusFilter === 'all' || t.status === statusFilter
   })
+
   const pendingCount = tasks.filter(t => t.status === 'pending').length
   const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
+  const totalToGenerate = preview ? preview.checkout_cleans.length + (includeStayovers ? preview.stayover_cleans.length : 0) : 0
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading housekeeping...</div>
 
@@ -304,23 +259,20 @@ export default function HousekeepingPage() {
       <div className="hk-header">
         <div>
           <h2 className="hk-title">Housekeeping</h2>
-          <p className="hk-sub">
-            {pendingCount} pending · {inProgressCount} in progress · {tasks.filter(t => t.status === 'completed').length} completed today
-          </p>
+          <p className="hk-sub">{pendingCount} pending · {inProgressCount} in progress · {tasks.filter(t => t.status === 'completed').length} completed today</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="hk-btn-outline" onClick={openAddTask}><Plus size={14} /> Add Task</button>
           <button className="hk-create-btn" onClick={buildPreview} disabled={generating}>
-            {generating ? <><Clock size={14} /> Building...</> : <><Sparkles size={14} /> Generate Today&apos;s Tasks</>}
+            <Sparkles size={14} /> {generating ? 'Building...' : "Generate Today's Tasks"}
           </button>
         </div>
       </div>
 
-      {/* Success banner */}
       {generated && (
         <div className="hk-success-banner">
           <Check size={16} />
-          <span>Tasks generated successfully and assigned to staff. Housekeeping team has been updated.</span>
+          <span>Tasks generated and assigned. Housekeeping team has been updated.</span>
         </div>
       )}
 
@@ -330,33 +282,36 @@ export default function HousekeepingPage() {
           const count = tasks.filter(t => t.status === key).length
           return (
             <div key={key} className="hk-stat" style={{ borderColor: count > 0 ? cfg.color + '60' : 'var(--slate-200)', background: count > 0 ? cfg.bg : 'white' }}>
-              <div className="hk-stat-top">
-                <Icon size={16} style={{ color: cfg.color }} />
-                <span className="hk-stat-num" style={{ color: cfg.color }}>{count}</span>
-              </div>
+              <div className="hk-stat-top"><Icon size={16} style={{ color: cfg.color }} /><span className="hk-stat-num" style={{ color: cfg.color }}>{count}</span></div>
               <p className="hk-stat-label">{cfg.label}</p>
             </div>
           )
         })}
       </div>
 
-      <div className="hk-filters-row">
-      <div className="hk-filters">
-        {['all', ...Object.keys(STATUS_CONFIG)].map(s => (
-          <button key={s} className="hk-filter-btn" data-active={statusFilter === s} onClick={() => setStatusFilter(s)}>
-            {s === 'all' ? 'All Tasks' : STATUS_CONFIG[s]?.label}
-          </button>
-        ))}
+      <div className="hk-filter-row">
+        <div className="hk-filters">
+          {['all', ...Object.keys(STATUS_CONFIG)].map(s => (
+            <button key={s} className="hk-filter-btn" data-active={statusFilter === s} onClick={() => setStatusFilter(s)}>
+              {s === 'all' ? 'All Tasks' : STATUS_CONFIG[s]?.label}
+            </button>
+          ))}
+        </div>
+        <button className="hk-my-tasks-btn" data-active={myTasksOnly} onClick={() => setMyTasksOnly(!myTasksOnly)}>
+          👤 {myTasksOnly ? 'My Tasks only' : 'My Tasks'}
+        </button>
       </div>
 
       {filtered.length === 0 ? (
         <div className="hk-empty">
           <Sparkles size={40} style={{ color: 'var(--slate-300)' }} />
-          <p>No housekeeping tasks yet</p>
-          <span>Click "Generate Today's Tasks" to automatically create tasks from today's checkouts and occupied rooms</span>
-          <button className="hk-create-btn" onClick={buildPreview} disabled={generating}>
-            <Sparkles size={14} /> Generate Today&apos;s Tasks
-          </button>
+          <p>{myTasksOnly ? 'No tasks assigned to you' : 'No housekeeping tasks yet'}</p>
+          <span>{myTasksOnly ? 'Tasks assigned to you will appear here' : 'Click "Generate Today\'s Tasks" to automatically create tasks from today\'s checkouts'}</span>
+          {!myTasksOnly && (
+            <button className="hk-create-btn" onClick={buildPreview} disabled={generating}>
+              <Sparkles size={14} /> Generate Today&apos;s Tasks
+            </button>
+          )}
         </div>
       ) : (
         <div className="hk-grid">
@@ -402,12 +357,10 @@ export default function HousekeepingPage() {
         <div className="modal-overlay" onClick={() => setShowPreview(false)}>
           <div className="modal-card large" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Generate Today's Housekeeping Tasks</h3>
+              <h3>Generate Today&apos;s Housekeeping Tasks</h3>
               <button className="modal-close" onClick={() => setShowPreview(false)}><X size={16} /></button>
             </div>
             <div className="modal-body">
-
-              {/* Checkout cleans */}
               <div className="preview-section">
                 <div className="preview-section-header">
                   <span className="preview-badge checkout">{preview.checkout_cleans.length}</span>
@@ -429,7 +382,6 @@ export default function HousekeepingPage() {
                 )}
               </div>
 
-              {/* Stayover cleans */}
               <div className="preview-section">
                 <div className="preview-section-header">
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -451,9 +403,7 @@ export default function HousekeepingPage() {
                       </div>
                     ))}
                     {preview.stayover_cleans.length > 5 && (
-                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                        + {preview.stayover_cleans.length - 5} more rooms
-                      </p>
+                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>+ {preview.stayover_cleans.length - 5} more rooms</p>
                     )}
                   </div>
                 ) : (
@@ -461,7 +411,6 @@ export default function HousekeepingPage() {
                 )}
               </div>
 
-              {/* Already has tasks */}
               {preview.already_has_task.length > 0 && (
                 <div className="preview-skipped">
                   <AlertCircle size={13} style={{ flexShrink: 0 }} />
@@ -469,40 +418,30 @@ export default function HousekeepingPage() {
                 </div>
               )}
 
-              {/* Assign to */}
               <div className="modal-field">
-                <label>Assign all tasks to (leave blank to distribute evenly across housekeeping staff)</label>
+                <label>Assign all tasks to (leave blank to auto-distribute across housekeeping staff)</label>
                 <select value={defaultAssignee} onChange={e => setDefaultAssignee(e.target.value)}>
-                  <option value="">Auto-distribute across housekeeping staff</option>
+                  <option value="">Auto-distribute across staff</option>
                   {staff.map(s => <option key={s.id} value={s.id}>{s.full_name} ({s.role.replace('_', ' ')})</option>)}
                 </select>
               </div>
 
-              {/* Summary */}
               <div className="preview-summary">
                 <span>Will create:</span>
-                <strong>
-                  {preview.checkout_cleans.length + (includeStayovers ? preview.stayover_cleans.length : 0)} tasks
-                  {' '}({preview.checkout_cleans.length} checkout{preview.checkout_cleans.length !== 1 ? 's' : ''}
-                  {includeStayovers && preview.stayover_cleans.length > 0 ? ` + ${preview.stayover_cleans.length} stayover${preview.stayover_cleans.length !== 1 ? 's' : ''}` : ''})
-                </strong>
+                <strong>{totalToGenerate} tasks ({preview.checkout_cleans.length} checkout{preview.checkout_cleans.length !== 1 ? 's' : ''}{includeStayovers && preview.stayover_cleans.length > 0 ? ` + ${preview.stayover_cleans.length} stayover${preview.stayover_cleans.length !== 1 ? 's' : ''}` : ''})</strong>
               </div>
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setShowPreview(false)}>Cancel</button>
-              <button
-                className="modal-save"
-                onClick={confirmGenerate}
-                disabled={generating || (preview.checkout_cleans.length === 0 && (!includeStayovers || preview.stayover_cleans.length === 0))}
-              >
-                {generating ? 'Creating tasks...' : `Create ${preview.checkout_cleans.length + (includeStayovers ? preview.stayover_cleans.length : 0)} Tasks`}
+              <button className="modal-save" onClick={confirmGenerate} disabled={generating || totalToGenerate === 0}>
+                {generating ? 'Creating tasks...' : `Create ${totalToGenerate} Tasks`}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add/Edit Task Modal */}
+      {/* Add/Edit Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
@@ -524,6 +463,11 @@ export default function HousekeepingPage() {
                   {TASK_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
+              {editingTask && taskType !== editingTask.task_type && ['completed', 'inspected'].includes(editingTask.status) && (
+                <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#92400e' }}>
+                  ⚠ Task type changed — status will reset to Pending since this task needs to be done again.
+                </div>
+              )}
               <div className="modal-field">
                 <label>Priority</label>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -571,12 +515,12 @@ export default function HousekeepingPage() {
         .hk-stat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
         .hk-stat-num { font-size: 24px; font-weight: 800; }
         .hk-stat-label { font-size: 12px; color: var(--slate-600); margin: 0; font-weight: 600; }
-        .hk-filters-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .hk-filter-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         .hk-filters { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
-        .hk-my-tasks-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: "DM Sans", sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; white-space: nowrap; }
-        .hk-my-tasks-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
         .hk-filter-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; }
         .hk-filter-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
+        .hk-my-tasks-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-500); cursor: pointer; white-space: nowrap; }
+        .hk-my-tasks-btn[data-active="true"] { background: var(--navy-800); border-color: var(--navy-800); color: white; }
         .hk-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px; text-align: center; color: var(--text-muted); }
         .hk-empty p { font-size: 16px; font-weight: 600; margin: 0; color: var(--slate-600); }
         .hk-empty span { font-size: 13px; max-width: 400px; line-height: 1.5; }
@@ -602,8 +546,6 @@ export default function HousekeepingPage() {
         .hk-btn { padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1px solid var(--slate-200); background: white; color: var(--slate-600); cursor: pointer; }
         .hk-btn.primary { background: var(--navy-800); border-color: var(--navy-800); color: white; }
         .hk-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* Preview modal */
         .preview-section { background: var(--slate-100); border-radius: 10px; padding: 14px; }
         .preview-section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
         .preview-badge { font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 20px; }
@@ -620,8 +562,6 @@ export default function HousekeepingPage() {
         .preview-skipped { display: flex; align-items: flex-start; gap: 8px; background: #fef3c7; border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #92400e; }
         .preview-summary { display: flex; justify-content: space-between; align-items: center; background: var(--gold-100); border: 1px solid var(--gold-300); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--navy-800); }
         .preview-summary strong { font-size: 15px; }
-
-        /* Modal */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-card { background: white; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 24px 48px rgba(0,0,0,0.2); overflow: hidden; }
         .modal-card.large { max-width: 600px; }

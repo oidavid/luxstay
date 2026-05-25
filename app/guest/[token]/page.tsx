@@ -453,7 +453,7 @@ export default function GuestPortalPage({ params }: { params: { token: string } 
           <div className="gp-amenities">
             <h2 className="gp-section-title">Your Room Includes</h2>
             <div className="gp-amenity-list">
-              {reservation!.room_type.amenities.map(a => (
+              {reservation!.room_type?.amenities?.map(a => (
                 <span key={a} className="gp-amenity-chip">{a}</span>
               ))}
             </div>

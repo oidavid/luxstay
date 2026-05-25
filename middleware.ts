@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -25,16 +25,16 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Public routes — always accessible (no login required)
-  const publicRoutes = ['/login', '/onboarding', '/book', '/guest']
+  // Public routes â€” always accessible (no login required)
+  const publicRoutes = ['/login', '/onboarding', '/book', '/guest', '/stay']
   const isPublic = publicRoutes.some(r => pathname.startsWith(r))
 
-  // If not logged in and trying to access protected route → redirect to login
+  // If not logged in and trying to access protected route â†’ redirect to login
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // If logged in and trying to access login/onboarding → redirect to dashboard
+  // If logged in and trying to access login/onboarding â†’ redirect to dashboard
   if (user && (pathname === '/login' || pathname === '/onboarding')) {
     return NextResponse.redirect(new URL('/overview', request.url))
   }
@@ -47,3 +47,4 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
+

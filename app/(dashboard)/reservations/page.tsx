@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -59,7 +59,9 @@ function nights(ci: string, co: string) {
 }
 
 function genConfNum() {
-  return `LUX-${new Date().getFullYear()}-${Math.floor(Math.random() * 90000 + 10000)}`
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+  const seg = (n: number) => Array.from({length: n}, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+  return `LUX-${seg(4)}-${seg(4)}-${seg(4)}`
 }
 
 export default function ReservationsPage() {
@@ -185,7 +187,7 @@ export default function ReservationsPage() {
       hotel_id: hotelId,
       reservation_id: selected.id,
       guest_id: selected.guest?.id,
-      description: `Room ${selected.room?.number ?? ''} — ${selected.room_type?.name} × ${n} nights`,
+      description: `Room ${selected.room?.number ?? ''} â€” ${selected.room_type?.name} Ã— ${n} nights`,
       charge_type: 'room_charge',
       amount: selected.rate_per_night,
       quantity: n,
@@ -207,7 +209,7 @@ export default function ReservationsPage() {
     const win = window.open('', '_blank')
     if (!win) return
     win.document.write(`
-      <html><head><title>Invoice — ${selected.confirmation_number}</title>
+      <html><head><title>Invoice â€” ${selected.confirmation_number}</title>
       <style>
         body { font-family: Georgia, serif; max-width: 600px; margin: 40px auto; color: #1e293b; }
         h1 { font-size: 28px; margin: 0; }
@@ -225,20 +227,20 @@ export default function ReservationsPage() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;">
         <div>
           <p class="label">Guest</p>
-          <p style="margin:0;font-size:16px;font-weight:bold;">${selected.guest?.full_name ?? '—'}</p>
+          <p style="margin:0;font-size:16px;font-weight:bold;">${selected.guest?.full_name ?? 'â€”'}</p>
           <p style="margin:4px 0 0;font-size:13px;color:#64748b;">${selected.guest?.phone ?? ''}</p>
           <p style="margin:2px 0 0;font-size:13px;color:#64748b;">${selected.guest?.email ?? ''}</p>
         </div>
         <div>
           <p class="label">Stay</p>
-          <p style="margin:0;font-size:14px;">${formatDate(selected.check_in_date)} → ${formatDate(selected.check_out_date)}</p>
-          <p style="margin:4px 0 0;font-size:13px;color:#64748b;">${n} night${n !== 1 ? 's' : ''} · ${selected.room_type?.name ?? ''} · Room ${selected.room?.number ?? 'TBA'}</p>
+          <p style="margin:0;font-size:14px;">${formatDate(selected.check_in_date)} â†’ ${formatDate(selected.check_out_date)}</p>
+          <p style="margin:4px 0 0;font-size:13px;color:#64748b;">${n} night${n !== 1 ? 's' : ''} Â· ${selected.room_type?.name ?? ''} Â· Room ${selected.room?.number ?? 'TBA'}</p>
         </div>
       </div>
       <table>
         <tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr>
         <tr>
-          <td>Room charge — ${selected.room_type?.name}</td>
+          <td>Room charge â€” ${selected.room_type?.name}</td>
           <td>${n}</td>
           <td>${formatCurrency(selected.rate_per_night)}</td>
           <td>${formatCurrency(roomTotal)}</td>
@@ -356,7 +358,7 @@ export default function ReservationsPage() {
           task_type: 'checkout_clean',
           status: 'pending',
           priority: 1,
-          notes: `Auto-created on checkout — ${selected.guest?.full_name ?? 'Guest'}`,
+          notes: `Auto-created on checkout â€” ${selected.guest?.full_name ?? 'Guest'}`,
         })
       }
     }
@@ -450,7 +452,7 @@ export default function ReservationsPage() {
             <div className="modal-field"><label>Phone</label><input value={newGuestPhone} onChange={e => setNewGuestPhone(e.target.value)} placeholder="+234..." /></div>
             <div className="modal-field"><label>Email</label><input value={newGuestEmail} onChange={e => setNewGuestEmail(e.target.value)} placeholder="guest@email.com" /></div>
           </div>
-          <button className="new-guest-link" onClick={() => setNewGuestMode(false)}>← Search existing guest instead</button>
+          <button className="new-guest-link" onClick={() => setNewGuestMode(false)}>â† Search existing guest instead</button>
         </div>
       )}
 
@@ -466,7 +468,7 @@ export default function ReservationsPage() {
         </div>
         <div className="modal-field">
           <label>Nights</label>
-          <div className="nights-display">{totalNights > 0 ? `${totalNights}` : '—'}</div>
+          <div className="nights-display">{totalNights > 0 ? `${totalNights}` : 'â€”'}</div>
         </div>
       </div>
       <div className="modal-row2">
@@ -480,7 +482,7 @@ export default function ReservationsPage() {
           <label>Room Type *</label>
           <select value={selectedRoomTypeId} onChange={e => { setSelectedRoomTypeId(e.target.value); setSelectedRoomId(''); setRateOverride('') }}>
             <option value="">Select type...</option>
-            {roomTypes.map(rt => <option key={rt.id} value={rt.id}>{rt.name} — {formatCurrency(rt.base_rate)}/night</option>)}
+            {roomTypes.map(rt => <option key={rt.id} value={rt.id}>{rt.name} â€” {formatCurrency(rt.base_rate)}/night</option>)}
           </select>
         </div>
         <div className="modal-field">
@@ -506,14 +508,14 @@ export default function ReservationsPage() {
           </select>
         </div>
         <div className="modal-field">
-          <label>Rate per Night (₦)</label>
+          <label>Rate per Night (â‚¦)</label>
           <input type="number" value={rateOverride !== '' ? rateOverride : (selectedRoomType?.base_rate ?? '')} onChange={e => setRateOverride(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Auto from room type" />
         </div>
       </div>
 
       {totalNights > 0 && effectiveRate > 0 && (
         <div className="rate-summary">
-          <span>{formatCurrency(effectiveRate)} × {totalNights} nights</span>
+          <span>{formatCurrency(effectiveRate)} Ã— {totalNights} nights</span>
           <span className="rate-total">{formatCurrency(effectiveRate * totalNights)}</span>
         </div>
       )}
@@ -538,7 +540,7 @@ export default function ReservationsPage() {
       <div className="res-header">
         <div>
           <h2 className="res-title">Reservations</h2>
-          <p className="res-sub">{reservations.length} total · {inHouse} in-house · {todayArrivals} arrivals today</p>
+          <p className="res-sub">{reservations.length} total Â· {inHouse} in-house Â· {todayArrivals} arrivals today</p>
         </div>
         <button className="res-new-btn" onClick={() => { resetForm(); setEditingReservation(null); setShowNew(true) }}>
           <Plus size={15} /> New Reservation
@@ -601,7 +603,7 @@ export default function ReservationsPage() {
                       {r.guest?.vip_flag && <span className="res-vip">VIP</span>}
                     </div>
                     <p className="res-row-meta">
-                      {r.room_type?.name} {r.room && `· Room ${r.room.number}`} · {formatDate(r.check_in_date)} → {formatDate(r.check_out_date)} · {n} night{n !== 1 ? 's' : ''}
+                      {r.room_type?.name} {r.room && `Â· Room ${r.room.number}`} Â· {formatDate(r.check_in_date)} â†’ {formatDate(r.check_out_date)} Â· {n} night{n !== 1 ? 's' : ''}
                     </p>
                     <p className="res-row-conf">{r.confirmation_number}</p>
                   </div>
@@ -700,7 +702,7 @@ export default function ReservationsPage() {
             {activePanel === 'folio' && (
               <div className="res-folio">
                 <div className="res-folio-header">
-                  <p className="res-panel-label" style={{ margin: 0 }}>Guest Folio — {selected.guest?.full_name}</p>
+                  <p className="res-panel-label" style={{ margin: 0 }}>Guest Folio â€” {selected.guest?.full_name}</p>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button className="res-folio-btn" onClick={postRoomCharges}>Post Room Charges</button>
                     <button className="res-folio-btn" onClick={() => setShowAddCharge(true)}><Plus size={12} /> Add</button>
@@ -710,7 +712,7 @@ export default function ReservationsPage() {
 
                 {/* Room charge summary */}
                 <div className="res-folio-row room">
-                  <span>Room charge · {nights(selected.check_in_date, selected.check_out_date)} nights × {formatCurrency(selected.rate_per_night)}</span>
+                  <span>Room charge Â· {nights(selected.check_in_date, selected.check_out_date)} nights Ã— {formatCurrency(selected.rate_per_night)}</span>
                   <span>{formatCurrency(roomChargeTotal)}</span>
                 </div>
 
@@ -722,7 +724,7 @@ export default function ReservationsPage() {
                     <div key={c.id} className="res-folio-row">
                       <div>
                         <p style={{ margin: 0, fontSize: 13, color: 'var(--slate-700)' }}>{c.description}</p>
-                        <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>{c.charge_type.replace('_', ' ')} · qty {c.quantity}</p>
+                        <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>{c.charge_type.replace('_', ' ')} Â· qty {c.quantity}</p>
                       </div>
                       <span>{formatCurrency(c.amount * c.quantity)}</span>
                     </div>
@@ -749,7 +751,7 @@ export default function ReservationsPage() {
                         <option value="other">Other</option>
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8 }}>
-                        <input type="number" value={chargeAmount} onChange={e => setChargeAmount(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Amount (₦)" style={{ padding: '8px 10px', border: '1px solid var(--slate-200)', borderRadius: 8, fontSize: 13, fontFamily: 'DM Sans, sans-serif', outline: 'none' }} />
+                        <input type="number" value={chargeAmount} onChange={e => setChargeAmount(e.target.value === '' ? '' : Number(e.target.value))} placeholder="Amount (â‚¦)" style={{ padding: '8px 10px', border: '1px solid var(--slate-200)', borderRadius: 8, fontSize: 13, fontFamily: 'DM Sans, sans-serif', outline: 'none' }} />
                         <input type="number" min={1} value={chargeQty} onChange={e => setChargeQty(Number(e.target.value))} placeholder="Qty" style={{ padding: '8px 10px', border: '1px solid var(--slate-200)', borderRadius: 8, fontSize: 13, fontFamily: 'DM Sans, sans-serif', outline: 'none' }} />
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
@@ -762,7 +764,7 @@ export default function ReservationsPage() {
               </div>
             )}
 
-            {/* Edit panel — inline */}
+            {/* Edit panel â€” inline */}
             {activePanel === 'edit' && (
               <div className="res-edit-panel">
                 <p style={{ font: '13px/1 Playfair Display, serif', fontWeight: 700, color: 'var(--slate-800)', margin: '0 0 16px' }}>
@@ -921,3 +923,4 @@ export default function ReservationsPage() {
     </div>
   )
 }
+

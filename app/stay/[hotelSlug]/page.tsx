@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import {
   Utensils, Wrench, MessageSquare, Receipt, Info,
   ChevronRight, Plus, Minus, X, Check, ArrowLeft,
   Phone, MapPin, Clock, Send, Banknote, CreditCard,
-  BedDouble, Bell, Moon
+  BedDouble, Bell
 } from 'lucide-react'
 
 type Hotel = {
@@ -79,8 +79,12 @@ function getAccessLevel(reservation: Reservation): AccessLevel {
   return 'expired'
 }
 
+const supabase = createSupabaseClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 export default function StayPortalPage({ params }: { params: { hotelSlug: string } }) {
-  const supabase = createClient()
   const [hotel, setHotel] = useState<Hotel | null>(null)
   const [hotelLoading, setHotelLoading] = useState(true)
   const [hotelNotFound, setHotelNotFound] = useState(false)

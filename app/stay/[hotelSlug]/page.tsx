@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import {
   Utensils, Wrench, MessageSquare, Receipt, Info,
@@ -84,7 +84,8 @@ const supabase = createSupabaseClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export default function StayPortalPage({ params }: { params: { hotelSlug: string } }) {
+export default function StayPortalPage({ params }: { params: Promise<{ hotelSlug: string }> }) {
+  const { hotelSlug } = React.use(params)
   const [hotel, setHotel] = useState<Hotel | null>(null)
   const [hotelLoading, setHotelLoading] = useState(true)
   const [hotelNotFound, setHotelNotFound] = useState(false)
@@ -133,7 +134,7 @@ export default function StayPortalPage({ params }: { params: { hotelSlug: string
     const { data } = await supabase
       .from('hotels')
       .select('id, name, slug, phone, whatsapp_number, address, city, country, primary_color, logo_url')
-      .eq('slug', params.hotelSlug)
+      .eq('slug', hotelSlug)
       .single()
 
     if (!data) { setHotelNotFound(true); setHotelLoading(false); return }

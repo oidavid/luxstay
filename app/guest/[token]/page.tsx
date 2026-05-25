@@ -449,7 +449,7 @@ export default function GuestPortalPage({ params }: { params: { token: string } 
         </div>
 
         {/* Amenities */}
-        {reservation!.room_type?.amenities?.length > 0 && (
+        {((reservation!.room_type?.amenities ?? []).length > 0) && (
           <div className="gp-amenities">
             <h2 className="gp-section-title">Your Room Includes</h2>
             <div className="gp-amenity-list">
